@@ -1,0 +1,14 @@
+{
+  "name": "pii-guardrail-web-interface",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Web interface for the Thai Image PII Guardrail.",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1",
+    "vitest": "^2.1.9"
+  }
+}

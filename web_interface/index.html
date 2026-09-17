@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Thai Image PII Guardrail</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <h1>Thai Image PII Guardrail</h1>
+      <p class="intro">
+        Upload a PNG or JPEG image to detect and redact sensitive data.
+      </p>
+
+      <form id="upload-form" class="upload-form">
+        <label for="file-input" class="file-label">Select an image</label>
+        <input
+          id="file-input"
+          name="image"
+          type="file"
+          accept="image/png,image/jpeg"
+          required
+        />
+        <button id="submit-btn" type="submit">Redact image</button>
+      </form>
+
+      <!-- Processing status indicator (Requirement 9.5). Hidden until a
+           request is in flight; shown via app.js while awaiting the response. -->
+      <div
+        id="status-indicator"
+        class="status-indicator"
+        role="status"
+        aria-live="polite"
+        aria-busy="false"
+        hidden
+      >
+        <span class="spinner" aria-hidden="true"></span>
+        <span class="status-text">Processing...</span>
+      </div>
+
+      <!-- Populated by task 16.2 (results rendering + download control). -->
+      <div id="result-container" class="result-container"></div>
+
+      <!-- Populated by task 16.2 (error message / warnings rendering). -->
+      <div id="error-container" class="error-container" role="alert"></div>
+
+      <!-- OCR debug view: shows the raw text the OCR engine read, each segment
+           with its confidence and bounding box. Collapsed by default; toggled
+           open to inspect what OCR actually recognized. Populated by app.js. -->
+      <details id="ocr-debug" class="ocr-debug" hidden>
+        <summary class="ocr-debug-summary">
+          OCR debug &mdash; raw recognized text
+          <span id="ocr-debug-count" class="ocr-debug-count"></span>
+        </summary>
+        <div id="ocr-debug-body" class="ocr-debug-body"></div>
+      </details>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

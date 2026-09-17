@@ -1,0 +1,565 @@
+{
+  "pbtResults": {
+    "3.2 Write property test: classification is total": {
+      "status": "passed",
+      "lastRunTimestamp": 1789034460048
+    },
+    "6.3 Write property test: confidence within range": {
+      "status": "passed",
+      "lastRunTimestamp": 1789102292720
+    },
+    "8.4 Write property test: redaction preserves dimensions": {
+      "status": "passed",
+      "lastRunTimestamp": 1789102436438
+    },
+    "8.2 Write property test: redaction covers each box in black": {
+      "status": "passed",
+      "lastRunTimestamp": 1789102517755
+    },
+    "8.3 Write property test: zero regions is identity": {
+      "status": "passed",
+      "lastRunTimestamp": 1789102519679
+    },
+    "12.2 Write property test: unsupported formats rejected with format identified": {
+      "status": "passed",
+      "lastRunTimestamp": 1789103580028
+    }
+  },
+  "executionHistory": {
+    "1.1 Implement core data models and enums": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030572193
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030585217
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789031587493
+      }
+    ],
+    "1.2 Implement the core error hierarchy": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030572421
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030586118
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789031588638
+      }
+    ],
+    "2.1 Implement quadrilateral-to-axis-aligned `BoundingBox` normalization": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030572572
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789031608109
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789033583193
+      }
+    ],
+    "3.1 Implement `classify_segment` pattern matchers": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030572691
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789031609308
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789033584307
+      }
+    ],
+    "4.1 Define `ClassifierModel` protocol and Detector wiring": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030572751
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789033618215
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034085149
+      }
+    ],
+    "5. Checkpoint - core classification stable": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030572808
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789092217199
+      }
+    ],
+    "6.1 Implement `OCRBackend` protocol and `OCREngine.extract`": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030572853
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789091338403
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789092151951
+      }
+    ],
+    "7.1 Implement `Preprocessor.preprocess` and `estimate_skew_angle`": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030572916
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789031610723
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789033585630
+      }
+    ],
+    "8.1 Implement `Redactor.redact`": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030572982
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789031611945
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789033586518
+      }
+    ],
+    "9. Checkpoint - all core components stable": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030573036
+      }
+    ],
+    "10.1 Implement `DetectionResult` serialize/deserialize": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030573094
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789036878299
+      }
+    ],
+    "11.1 Implement `GuardrailPipeline.process`": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030573148
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789092238133
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789092395904
+      }
+    ],
+    "12.1 Implement upload validation (format + size)": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030573201
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789092409170
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789092687720
+      }
+    ],
+    "12.4 Implement `POST /api/redact` endpoint": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030573276
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789092696752
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789093006835
+      }
+    ],
+    "12.5 Implement error mapping and `/api/health`": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030573330
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789093013226
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789093449164
+      }
+    ],
+    "13.1 Implement `PaddleOCRBackend`": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030573378
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789092409888
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789092688408
+      }
+    ],
+    "14. Checkpoint - backend and OCR backend wired": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030573428
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789093479377
+      }
+    ],
+    "16.1 Implement upload form, status indicator, and request flow": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030573481
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789093486412
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789093701462
+      }
+    ],
+    "16.2 Implement results rendering and download control": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030573531
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789093707089
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789093889676
+      }
+    ],
+    "17. Final checkpoint - full stack wired": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789030573583
+      },
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789093925553
+      }
+    ],
+    "1. Set up project structure, tooling, and core data models": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789031588725
+      }
+    ],
+    "2. Implement bounding-box normalization and geometry": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789033583346
+      }
+    ],
+    "3. Implement the Detector's pattern-based classification": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789033584343
+      }
+    ],
+    "7. Implement the Preprocessor (denoise, deskew, quality estimation)": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789033585660
+      }
+    ],
+    "8. Implement the Redactor": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789033586590
+      }
+    ],
+    "4. Implement the optional Classifier_Model contract and Detector integration": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034085359
+      }
+    ],
+    "1.3 Write unit tests for data model invariants": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034181487
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034733883
+      }
+    ],
+    "2.2 Write property test for bounding-box normalization": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034182928
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034734933
+      }
+    ],
+    "3.2 Write property test: classification is total": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034183798
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034732512
+      }
+    ],
+    "3.3 Write property test: category-bearing text is classified into its category": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034184969
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034731355
+      }
+    ],
+    "3.4 Write property test: multi-category text yields all categories": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034186016
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034729899
+      }
+    ],
+    "4.2 Write property test: disabled classifier equals pattern-only": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034743481
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789036867082
+      }
+    ],
+    "4.3 Write property test: enabled-but-unavailable falls back and warns": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034743890
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789036864734
+      }
+    ],
+    "4.4 Write unit test: enabled+available classifier is consulted": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034745188
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789036867339
+      }
+    ],
+    "7.2 Write property test: skew correction within 1 degree": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034746580
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789036868570
+      }
+    ],
+    "7.3 Write unit test: denoise runs before OCR": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789034747880
+      },
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789036866186
+      }
+    ],
+    "8.2 Write property test: redaction covers each box in black": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789036879883
+      }
+    ],
+    "8.3 Write property test: zero regions is identity": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789036880828
+      }
+    ],
+    "8.4 Write property test: redaction preserves dimensions": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789036882534
+      }
+    ],
+    "8.5 Write unit test: redactor returns an encodable image": [
+      {
+        "executionId": "39b3b9d8-2eb6-4136-b459-79a5b5b2126f",
+        "chatSessionId": "sess_caf56cc5-8b7c-42da-92d2-d2d3963f1e0f",
+        "timestamp": 1789036883233
+      }
+    ],
+    "6. Implement the OCR_Engine with injectable backend": [
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789092151991
+      }
+    ],
+    "11. Implement the GuardrailPipeline core entry point": [
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789092395955
+      }
+    ],
+    "13. Implement the default PaddleOCR backend": [
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789092688439
+      }
+    ],
+    "12. Implement the Backend_Service (FastAPI adapter)": [
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789093449235
+      }
+    ],
+    "16. Implement the Web_Interface (browser frontend)": [
+      {
+        "executionId": "cd574f89-7084-42c8-bb39-8d54155494db",
+        "chatSessionId": "sess_00187db9-3fc2-4804-bf7d-c3e4718fe667",
+        "timestamp": 1789093889749
+      }
+    ]
+  }
+}

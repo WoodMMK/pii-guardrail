@@ -1,0 +1,274 @@
+:root {
+  --fg: #1a1a1a;
+  --muted: #5a5a5a;
+  --border: #d0d0d0;
+  --accent: #1f6feb;
+  --error: #b42318;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--fg);
+  background: #f7f7f8;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 2rem 1rem 4rem;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.intro {
+  color: var(--muted);
+  margin-top: 0;
+}
+
+.upload-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.file-label {
+  font-weight: 600;
+}
+
+#submit-btn {
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+#submit-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  color: var(--muted);
+}
+
+.status-indicator[hidden] {
+  display: none;
+}
+
+.spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.result-container,
+.error-container {
+  margin-top: 1.25rem;
+}
+
+.result-figure {
+  margin: 0 0 1rem;
+}
+
+.redacted-image {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: block;
+}
+
+.download-link {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 6px;
+  text-decoration: none;
+}
+
+.download-link:hover {
+  filter: brightness(0.95);
+}
+
+.region-count {
+  font-weight: 600;
+  margin: 1rem 0 0.5rem;
+}
+
+.category-summary {
+  margin: 0 0 1rem;
+  padding-left: 1.25rem;
+}
+
+.category-item {
+  color: var(--fg);
+}
+
+.category-empty {
+  color: var(--muted);
+}
+
+.warnings {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e0b400;
+  background: #fff8e1;
+  border-radius: 6px;
+}
+
+.warning {
+  margin: 0.25rem 0;
+  color: #7a5900;
+}
+
+.error-container {
+  color: var(--error);
+}
+
+.error-message {
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.error-detail,
+.error-code {
+  margin: 0.25rem 0;
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------------------------
+   OCR debug panel: shows the raw text the OCR engine recognized, each segment
+   with confidence and bounding box. Collapsed by default (<details>).
+   --------------------------------------------------------------------------- */
+.ocr-debug {
+  margin-top: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.ocr-debug-summary {
+  cursor: pointer;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  user-select: none;
+}
+
+.ocr-debug-count {
+  color: var(--muted);
+  font-weight: 400;
+  margin-left: 0.4rem;
+}
+
+.ocr-debug-body {
+  padding: 0 1rem 1rem;
+  overflow-x: auto;
+}
+
+.ocr-empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.ocr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.ocr-table th,
+.ocr-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.4rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.ocr-table th {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ocr-index {
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ocr-text {
+  font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+  word-break: break-word;
+  max-width: 340px;
+}
+
+.ocr-confidence,
+.ocr-box {
+  white-space: nowrap;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* OCR debug: per-segment classification cells (categories + redacted flag). */
+.ocr-categories {
+  max-width: 240px;
+}
+
+.ocr-cat-tag {
+  display: inline-block;
+  margin: 1px 3px 1px 0;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.ocr-cat-none {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.82rem;
+}
+
+.ocr-redacted-yes {
+  color: #b42318;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ocr-redacted-no {
+  color: var(--muted);
+  white-space: nowrap;
+}

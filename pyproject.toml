@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pii_guardrail"
+version = "0.1.0"
+description = "Thai Image PII Guardrail - reusable, framework-agnostic PII detection and redaction core."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+# Core runtime dependencies. These are the ONLY hard dependencies of the
+# reusable core (imaging + format load/save). The core imports cleanly with
+# just these installed.
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python>=4.8",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+# Server-side OCR backend. Declared but ISOLATED: the core never imports
+# PaddleOCR at module import time, so `import pii_guardrail` works without it.
+ocr = [
+    "paddleocr>=2.7",
+    "paddlepaddle>=2.5",
+]
+
+# Web adapter (Backend_Service). Declared but ISOLATED from the core.
+web = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
+]
+
+# Optional Thai NER classifier (assists pattern-based name/org detection).
+# Declared but ISOLATED: the core never imports pythainlp at module import
+# time, so `import pii_guardrail` works without it. PyThaiNLP's NER runs
+# locally, so uploaded content never leaves the machine.
+ner = [
+    "pythainlp>=5.0",
+    "python-crfsuite>=0.9",
+]
+
+# Optional Presidio classifier (assists pattern detection for English-language
+# PII: free-form person names, locations, credit cards, ...). Declared but
+# ISOLATED: the core never imports presidio_analyzer at module import time, so
+# `import pii_guardrail` works without it. Presidio runs locally (its spaCy NLP
+# engine executes in-process), so uploaded content never leaves the machine.
+# NOTE: Presidio also needs a spaCy English model, installed separately. The
+# SMALL model is the default (low memory, ~50MB RAM):
+#   python -m spacy download en_core_web_sm
+# For higher NER accuracy at the cost of ~500MB more RAM, install a larger model
+# and select it with the PII_GUARDRAIL_SPACY_MODEL env var, e.g.:
+#   python -m spacy download en_core_web_md   (then set PII_GUARDRAIL_SPACY_MODEL=en_core_web_md)
+presidio = [
+    "presidio-analyzer>=2.2",
+    "spacy>=3.7",
+]
+
+# Testing toolchain.
+test = [
+    "pytest>=8.0",
+    "hypothesis>=6.100",
+]
+
+dev = [
+    "pii_guardrail[ocr,web,ner,presidio,test]",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pii_guardrail*"]
+
+[tool.pytest.ini_options]
+# Single-execution runs (no watch mode). pytest is not a watcher by default;
+# these options keep runs quiet and deterministic.
+minversion = "8.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
+markers = [
+    "property: property-based tests (Hypothesis)",
+    "unit: example-based unit tests",
+    "integration: model/infrastructure-dependent integration tests",
+]

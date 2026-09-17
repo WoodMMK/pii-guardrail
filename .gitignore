@@ -1,0 +1,55 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Virtual environment ---
+.venv/
+venv/
+env/
+
+# --- Test / tooling caches ---
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Node (web_interface) ---
+node_modules/
+web_interface/node_modules/
+
+# --- Secrets / environment (NEVER commit real keys) ---
+.env
+.env.*
+*.env
+secrets.*
+*.key
+*.pem
+
+# --- Scratch / temp test artifacts ---
+_*.py
+_*.png
+_*.json
+*.tmp
+check_server.txt
+boxes_diag.txt
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# --- Local model caches (if any get downloaded here) ---
+.paddlex/
+
+# --- Large / non-source artifacts ---
+*.zip
+previous-kiro-session-*.zip
+redacted_result.png

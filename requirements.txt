@@ -1,0 +1,19 @@
+# Core runtime dependencies (imaging + format load/save).
+# These are the only hard dependencies of the reusable `pii_guardrail` core.
+numpy>=1.24
+opencv-python>=4.8
+Pillow>=10.0
+
+# Testing toolchain.
+pytest>=8.0
+hypothesis>=6.100
+
+# --- Isolated / optional (NOT imported by the core at import time) ---
+# Server-side OCR backend (install via: pip install -e .[ocr])
+# paddleocr>=2.7
+# paddlepaddle>=2.5
+#
+# Web adapter / Backend_Service (install via: pip install -e .[web])
+# fastapi>=0.110
+# uvicorn>=0.29
+# python-multipart>=0.0.9
