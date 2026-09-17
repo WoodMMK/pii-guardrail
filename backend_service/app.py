@@ -265,20 +265,29 @@ def _serialize_detection_result(result: "DetectionResult") -> dict:
     }
 
 
-def _serialize_ocr_segment(segment: "TextSegment", categories: "set | None" = None) -> dict:
+def _serialize_ocr_segment(
+    segment: "TextSegment",
+    categories: "set | None" = None,
+    sources: "dict | None" = None,
+) -> dict:
     """Serialize one raw OCR :class:`TextSegment` for the debug view.
 
-    Emits the recognized text, its bounding box, OCR confidence, and the
-    categories the classifier assigned to it. ``categories`` is the per-segment
-    classification (empty set when the segment was judged non-sensitive); it is
-    serialized as a sorted list of category string values plus a ``redacted``
-    flag, so the frontend debug panel can show WHY each segment was or was not
-    redacted -- including the non-sensitive segments that never become a region.
+    Emits the recognized text, its bounding box, OCR confidence, the merged
+    categories, and a per-SOURCE breakdown. ``categories`` is the union across
+    all layers (empty when non-sensitive); ``sources`` maps each layer label
+    ("pattern", "llm", "presidio", "detect-secrets") to the categories THAT
+    layer assigned. Together with the ``redacted`` flag this lets the frontend
+    debug panel show WHY each segment was redacted and WHICH layer flagged it.
     """
     box = segment.box
     category_values = (
         sorted(c.value for c in categories) if categories else []
     )
+    source_values = {}
+    if sources:
+        for src, cats in sources.items():
+            if cats:
+                source_values[src] = sorted(c.value for c in cats)
     return {
         "text": segment.text,
         "box": {
@@ -290,6 +299,7 @@ def _serialize_ocr_segment(segment: "TextSegment", categories: "set | None" = No
         "confidence": float(segment.confidence),
         "categories": category_values,
         "redacted": bool(category_values),
+        "sources": source_values,
     }
 
 
@@ -476,6 +486,9 @@ def create_app(pipeline: GuardrailPipeline | None = None) -> FastAPI:
                     segment,
                     result.segment_categories[i]
                     if i < len(result.segment_categories)
+                    else None,
+                    result.segment_sources[i]
+                    if i < len(result.segment_sources)
                     else None,
                 )
                 for i, segment in enumerate(result.ocr_segments)

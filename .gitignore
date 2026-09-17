@@ -53,3 +53,7 @@ Thumbs.db
 *.zip
 previous-kiro-session-*.zip
 redacted_result.png
+
+# --- Experiment: screenpipe ONNX model + scratch (not committed) ---
+_screenpipe/
+*.onnx

@@ -111,6 +111,11 @@ class PipelineResult:
     #: non-sensitive (and thus not redacted). Exposes the full per-segment
     #: classification for debugging why a segment was or was not redacted.
     segment_categories: "list[set]" = field(default_factory=list)
+    #: Per-segment, per-SOURCE classification breakdown, aligned by index with
+    #: ``ocr_segments``. Each entry maps a layer label ("pattern", "llm",
+    #: "presidio", "detect-secrets") to the categories that layer assigned, so
+    #: a debug view can attribute each detection to the classifier that made it.
+    segment_sources: "list[dict]" = field(default_factory=list)
 
 
 class GuardrailPipeline:
@@ -234,4 +239,5 @@ class GuardrailPipeline:
             ocr_segments=list(segments),
             processed_image=work_image,
             segment_categories=list(outcome.segment_categories),
+            segment_sources=list(outcome.segment_sources),
         )

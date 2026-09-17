@@ -284,7 +284,7 @@ export function renderOcrDebug(segments, elements) {
   for (const heading of [
     "#",
     "Recognized text",
-    "Classified as (NER + patterns)",
+    "Classified as (by layer)",
     "Redacted?",
     "Confidence",
     "Box (x, y, w, h)",
@@ -311,17 +311,47 @@ export function renderOcrDebug(segments, elements) {
     textCell.textContent = text;
     row.appendChild(textCell);
 
-    // --- Classified categories (why it was / was not redacted) ---
+    // --- Classified categories, broken down BY LAYER (which classifier
+    // flagged what). Falls back to the merged category list when no per-source
+    // breakdown is available (older responses). ---
     const categories =
       segment && Array.isArray(segment.categories) ? segment.categories : [];
+    const sources =
+      segment && segment.sources && typeof segment.sources === "object"
+        ? segment.sources
+        : {};
+    const sourceNames = Object.keys(sources);
     const catCell = document.createElement("td");
     catCell.className = "ocr-categories";
+
     if (categories.length === 0) {
       const none = document.createElement("span");
       none.className = "ocr-cat-none";
       none.textContent = "(not sensitive)";
       catCell.appendChild(none);
+    } else if (sourceNames.length > 0) {
+      // Per-layer breakdown: one line per source -> "<layer>: tag tag".
+      for (const src of sourceNames.sort()) {
+        const cats = Array.isArray(sources[src]) ? sources[src] : [];
+        if (cats.length === 0) continue;
+        const line = document.createElement("div");
+        line.className = "ocr-source-line";
+
+        const label = document.createElement("span");
+        label.className = "ocr-source-label";
+        label.textContent = `${src}:`;
+        line.appendChild(label);
+
+        for (const category of cats) {
+          const tag = document.createElement("span");
+          tag.className = "ocr-cat-tag";
+          tag.textContent = String(category);
+          line.appendChild(tag);
+        }
+        catCell.appendChild(line);
+      }
     } else {
+      // No per-source info: show the merged category tags.
       for (const category of categories) {
         const tag = document.createElement("span");
         tag.className = "ocr-cat-tag";

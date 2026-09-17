@@ -195,3 +195,66 @@ class CompositeClassifier:
             )
 
         return result
+
+    def classify_segments_by_source(
+        self, segments: list
+    ) -> dict[int, dict[str, set[SensitiveCategory]]]:
+        """Like :meth:`classify_segments` but KEEPS each layer's result separate.
+
+        Returns ``{segment_index: {source_name: set[categories]}}`` so callers
+        (e.g. a debug view) can see WHICH layer flagged WHAT on each segment,
+        rather than one merged set. Layers are labelled by their ``source_name``
+        attribute (falling back to the class name). Same defensive semantics as
+        :meth:`classify_segments`: failing/unavailable layers are skipped.
+
+        Raises:
+            ClassifierUnavailableError: Only when NO wrapped layer is available.
+        """
+        seg_list = list(segments)
+        result: dict[int, dict[str, set[SensitiveCategory]]] = {}
+        any_available = False
+
+        def _record(index: int, source: str, cats: set[SensitiveCategory]) -> None:
+            if not cats:
+                return
+            result.setdefault(index, {}).setdefault(source, set()).update(cats)
+
+        for classifier in self._classifiers:
+            try:
+                if not classifier.available:  # type: ignore[attr-defined]
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+            any_available = True
+
+            source = getattr(classifier, "source_name", type(classifier).__name__)
+            whole_page = getattr(classifier, "classify_segments", None)
+            if callable(whole_page):
+                try:
+                    mapping = whole_page(seg_list)
+                except (ClassifierUnavailableError, Exception):  # noqa: BLE001
+                    continue
+                if isinstance(mapping, dict):
+                    for idx, cats in mapping.items():
+                        try:
+                            i = int(idx)
+                        except (TypeError, ValueError):
+                            continue
+                        _record(i, source, set(cats) if cats else set())
+            else:
+                for i, seg in enumerate(seg_list):
+                    text = getattr(seg, "text", None)
+                    if not isinstance(text, str) or not text.strip():
+                        continue
+                    try:
+                        cats = classifier.classify(text)  # type: ignore[attr-defined]
+                    except (ClassifierUnavailableError, Exception):  # noqa: BLE001
+                        continue
+                    _record(i, source, set(cats) if cats else set())
+
+        if not any_available:
+            raise ClassifierUnavailableError(
+                "No classifier layer is available."
+            )
+
+        return result

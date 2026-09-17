@@ -950,11 +950,21 @@ class DetectionOutcome:
             the full per-segment classification -- including the non-sensitive
             segments that ``regions`` omits -- so callers can show WHY each
             segment was or was not redacted.
+        segment_sources: A per-segment breakdown of WHICH classifier layer
+            assigned WHICH categories, in input order (one entry per segment).
+            Each entry maps a source label (``"pattern"`` for the deterministic
+            regex, plus each model layer's ``source_name`` such as ``"llm"`` /
+            ``"presidio"`` / ``"detect-secrets"``) to that layer's categories
+            for the segment. Lets a debug view attribute each detection to its
+            source instead of showing one merged set.
     """
 
     regions: list[SensitiveRegion] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     segment_categories: list[set[SensitiveCategory]] = field(default_factory=list)
+    segment_sources: list[dict[str, set[SensitiveCategory]]] = field(
+        default_factory=list
+    )
 
 
 class Detector:
@@ -1086,6 +1096,60 @@ class Detector:
                 result[idx] = cats
         return result
 
+    def _whole_page_by_source(
+        self, segments: list[TextSegment]
+    ) -> dict[int, dict[str, set[SensitiveCategory]]]:
+        """Per-SOURCE whole-page categories, when the classifier can provide them.
+
+        Calls the classifier's optional ``classify_segments_by_source`` (exposed
+        by :class:`~pii_guardrail.composite.CompositeClassifier`) so the Detector
+        can attribute each detection to the layer that produced it. Returns an
+        empty mapping when the classifier is disabled, absent, lacks the method,
+        is unavailable, or raises -- in the unavailable/raise cases the fallback
+        flag is set (mirroring :meth:`_whole_page_categories`).
+        """
+        if not self._use_classifier or self._classifier is None:
+            return {}
+
+        by_source = getattr(self._classifier, "classify_segments_by_source", None)
+        if not callable(by_source):
+            return {}
+
+        try:
+            if not self._classifier.available:
+                self._classifier_fallback_occurred = True
+                return {}
+            raw = by_source(list(segments))
+        except ClassifierUnavailableError:
+            self._classifier_fallback_occurred = True
+            return {}
+        except Exception:  # noqa: BLE001 - a misbehaving model must not break detection
+            self._classifier_fallback_occurred = True
+            return {}
+
+        # Coerce defensively into dict[int, dict[str, set[SensitiveCategory]]].
+        result: dict[int, dict[str, set[SensitiveCategory]]] = {}
+        if not isinstance(raw, dict):
+            return {}
+        for index, sources in raw.items():
+            try:
+                idx = int(index)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(sources, dict):
+                continue
+            clean: dict[str, set[SensitiveCategory]] = {}
+            for src, cats in sources.items():
+                try:
+                    valid = {c for c in cats if isinstance(c, SensitiveCategory)}
+                except TypeError:
+                    continue
+                if valid and isinstance(src, str):
+                    clean[src] = valid
+            if clean:
+                result[idx] = clean
+        return result
+
     def detect(self, segments: list[TextSegment]) -> DetectionOutcome:
         """Build sensitive regions for all sensitive segments.
 
@@ -1107,25 +1171,45 @@ class Detector:
         # Reset per-call so warnings reflect only this detect() invocation.
         self._classifier_fallback_occurred = False
 
-        # Whole-page pass (single call) when the classifier supports it. When it
-        # does, we skip the per-segment classifier call to avoid invoking the
-        # model twice; patterns still run per segment as the source of truth.
-        whole_page = self._whole_page_categories(segments)
+        # Whole-page pass (single call) when the classifier supports it. We also
+        # request the per-SOURCE breakdown (which layer flagged what) when the
+        # classifier can provide it, so debug views can attribute detections.
         classifier_is_whole_page = callable(
             getattr(self._classifier, "classify_segments", None)
         )
+        by_source = self._whole_page_by_source(segments)
+        # Merged whole-page categories (union across layers), reused for regions.
+        whole_page: dict[int, set[SensitiveCategory]]
+        if by_source:
+            whole_page = {
+                idx: set().union(*sources.values()) if sources else set()
+                for idx, sources in by_source.items()
+            }
+        else:
+            whole_page = self._whole_page_categories(segments)
 
         regions: list[SensitiveRegion] = []
         segment_categories: list[set[SensitiveCategory]] = []
+        segment_sources: list[dict[str, set[SensitiveCategory]]] = []
         for index, segment in enumerate(segments):
+            pattern_cats = classify_segment(segment.text)
             if classifier_is_whole_page:
                 # Patterns are the source of truth; union the whole-page model's
                 # categories for this segment index (empty if none / unavailable).
-                categories = classify_segment(segment.text) | whole_page.get(
-                    index, set()
-                )
+                categories = pattern_cats | whole_page.get(index, set())
             else:
                 categories = self.classify_segment(segment.text)
+
+            # Per-source breakdown: always include the deterministic "pattern"
+            # layer, plus each model layer's contribution for this segment.
+            sources: dict[str, set[SensitiveCategory]] = {}
+            if pattern_cats:
+                sources["pattern"] = set(pattern_cats)
+            for src, cats in by_source.get(index, {}).items():
+                if cats:
+                    sources[src] = set(cats)
+            segment_sources.append(sources)
+
             # Record the categories for EVERY segment (aligned by index), so the
             # non-sensitive segments -- which produce no region -- are still
             # visible to callers that want the full classification breakdown.
@@ -1148,5 +1232,6 @@ class Detector:
         return DetectionOutcome(
             regions=regions,
             warnings=warnings,
+            segment_sources=segment_sources,
             segment_categories=segment_categories,
         )

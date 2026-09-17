@@ -71,6 +71,9 @@ class SecretsClassifier:
     Exposes ``available`` + ``classify`` (per-segment). Construct once and reuse.
     """
 
+    #: Stable label identifying this layer in per-source debug breakdowns.
+    source_name = "detect-secrets"
+
     def __init__(self) -> None:
         """Prepare the detect-secrets scanner; never raise on failure.
 

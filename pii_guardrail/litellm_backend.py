@@ -107,6 +107,9 @@ class LiteLLMClassifier:
     hook the Detector prefers. Construct once and reuse.
     """
 
+    #: Stable label identifying this layer in per-source debug breakdowns.
+    source_name = "llm"
+
     def __init__(
         self,
         base_url: str | None = None,

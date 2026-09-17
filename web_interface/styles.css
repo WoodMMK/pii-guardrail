@@ -272,3 +272,18 @@ h1 {
   color: var(--muted);
   white-space: nowrap;
 }
+
+/* OCR debug: per-layer (per-source) classification breakdown. */
+.ocr-source-line {
+  margin: 2px 0;
+  line-height: 1.6;
+}
+
+.ocr-source-label {
+  display: inline-block;
+  min-width: 92px;
+  margin-right: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+}

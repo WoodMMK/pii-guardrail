@@ -66,6 +66,9 @@ class PresidioPatternClassifier:
     building the registry + blank NLP engine is done once.
     """
 
+    #: Stable label identifying this layer in per-source debug breakdowns.
+    source_name = "presidio"
+
     def __init__(self, score_threshold: float = _DEFAULT_SCORE_THRESHOLD) -> None:
         """Build the pattern-only analyzer; never raise on failure.
 
