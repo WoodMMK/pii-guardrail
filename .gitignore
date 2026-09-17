@@ -23,6 +23,9 @@ htmlcov/
 node_modules/
 web_interface/node_modules/
 
+# --- Kiro specs ---
+.kiro/
+
 # --- Secrets / environment (NEVER commit real keys) ---
 .env
 .env.*

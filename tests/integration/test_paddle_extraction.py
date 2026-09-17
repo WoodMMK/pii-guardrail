@@ -30,13 +30,11 @@ import pytest
 # Guard the whole module: skip everything if paddleocr is not importable.
 pytest.importorskip("paddleocr")
 
-from pii_guardrail.detector import Detector  # noqa: E402
 from pii_guardrail.models import BoundingBox, TextSegment  # noqa: E402
 from pii_guardrail.ocr import OCREngine  # noqa: E402
 from pii_guardrail.paddle_backend import PaddleOCRBackend  # noqa: E402
 from pii_guardrail.pipeline import GuardrailPipeline  # noqa: E402
 from pii_guardrail.preprocessor import Preprocessor  # noqa: E402
-from pii_guardrail.redactor import Redactor  # noqa: E402
 
 from tests.integration.sample_corpus import (  # noqa: E402
     make_latin_sample,
@@ -166,8 +164,6 @@ def test_health_reports_ocr_backend_available(backend: PaddleOCRBackend):
     pipeline = GuardrailPipeline(
         preprocessor=Preprocessor(),
         ocr_engine=OCREngine(backend),  # already-resolved, available backend
-        detector=Detector(),
-        redactor=Redactor(),
     )
 
     client = fastapi_testclient.TestClient(create_app(pipeline))

@@ -35,35 +35,6 @@ web = [
     "python-dotenv>=1.0",
 ]
 
-# Optional Thai NER classifier (assists pattern-based name/org detection).
-# Declared but ISOLATED: the core never imports pythainlp at module import
-# time, so `import pii_guardrail` works without it. PyThaiNLP's NER runs
-# locally, so uploaded content never leaves the machine.
-ner = [
-    "pythainlp>=5.0",
-    "python-crfsuite>=0.9",
-]
-
-# Optional Presidio PATTERN-ONLY classifier (structured PII: credit cards, IP
-# addresses, IBANs, crypto wallets, email/phone/URL). Declared but ISOLATED:
-# the core never imports presidio_analyzer at module import time, so
-# `import pii_guardrail` works without it. The default backend
-# (PresidioPatternClassifier) runs Presidio's regex recognizers with a BLANK
-# spaCy pipeline (tokenizer only) -- NO NER model download needed, ~110MB RAM.
-# spaCy is still required for the blank pipeline but no model file is fetched.
-presidio = [
-    "presidio-analyzer>=2.2",
-    "spacy>=3.7",
-]
-
-# Optional credential/secret detection via detect-secrets (Yelp). Declared but
-# ISOLATED: the core never imports detect_secrets at import time. Runs locally,
-# tiny footprint (~30MB), no ML model. Only high-precision plugins are used
-# (entropy plugins are disabled to avoid false positives on OCR text).
-secrets = [
-    "detect-secrets>=1.5",
-]
-
 # Testing toolchain.
 test = [
     "pytest>=8.0",
@@ -71,7 +42,7 @@ test = [
 ]
 
 dev = [
-    "pii_guardrail[ocr,web,ner,presidio,secrets,test]",
+    "pii_guardrail[ocr,web,test]",
 ]
 
 [tool.setuptools.packages.find]

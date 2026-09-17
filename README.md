@@ -1,6 +1,9 @@
-# PII Guardrail สำหรับรูปภาพ (POC)
+# Thai Document OCR & Bounding Box Inspector
 
-ระบบ Guardrail สำหรับสแกนรูปภาพเอกสารเพื่อ **ตรวจจับและเบลอ (redact) ข้อมูลส่วนบุคคล (PII)** ก่อนส่งต่อรูปภาพไปยัง AI ภายนอก รองรับทั้งสถาปัตยกรรมแบบ **100% In-Browser OCR (WebAssembly / Zero External API)** และ Backend Pipeline ผสมผสาน Multi-layer Classifiers
+ระบบ OCR ภาษาไทย-อังกฤษความแม่นยำสูง ทำงานแบบ **100% In-Browser OCR (WebAssembly / Zero External API)** ผ่าน ONNX Runtime Web และ PaddleOCR พร้อมระบบจัดกลุ่มข้อความตามโครงสร้างเอกสารจริง:
+- **ตรวจจับแนวขอบคอลัมน์และตารางอัตโนมัติ (Column Margins & Gap Analysis)**
+- **สับคำภาษาไทยรายคำด้วย Intl.Segmenter** พร้อมคำนวณสัดส่วน Bounding Box รายคำอย่างแม่นยำ (ข้ามสระบน/ล่างและวรรณยุกต์)
+- **สร้างผลลัพธ์โครงสร้างลำดับชั้น (Sentences + Word-Level Bounding Boxes)** เพื่อให้ทีมที่นำไปทำ Pattern Filter หรือ Redaction สามารถเลือกปิดทับเฉพาะคำได้โดยไม่เสียบริบทของเอกสาร
 
 ```
 [ เอกสาร / รูปภาพ ]
@@ -12,10 +15,7 @@
    └── สร้างผลลัพธ์โครงสร้างลำดับชั้น (Sentences + Word-Level Bounding Boxes)
         │
         ▼
-[ Classifier Layers (Pattern + LLM + Presidio + detect-secrets) ]
-        │
-        ▼
-[ Pinpoint Redactor (ถมดำเฉพาะคำที่เป็น PII โดยไม่ปิดทับ Label รอบข้าง) ]
+[ พร้อมส่งต่อให้ระบบ Pattern Filter / LLM / Pinpoint Redactor ]
 ```
 
 ---
@@ -27,20 +27,16 @@
 3. [วิธีรันและทดลองใช้งานหน้าเว็บ (Web Interface)](#การรันและทดลองใช้งานหน้าเว็บ-web-interface)
 4. [โครงสร้างผลลัพธ์ OCR (Data Structure)](#โครงสร้างผลลัพธ์-ocr-data-structure)
 5. [คำแนะนำสำหรับทีมที่นำไปทำ Pattern Filter ต่อ (Word-Level Pinpoint Redaction)](#คำแนะนำสำหรับทีมที่นำไปทำ-pattern-filter-ต่อ-word-level-pinpoint-redaction)
-6. [สถาปัตยกรรมการตรวจจับ (Detection Layers)](#สถาปัตยกรรมการตรวจจับ-detection-layers)
-7. [การทดสอบ (Tests)](#tests)
-8. [ความปลอดภัยและ Privacy](#ความปลอดภัยและ-privacy)
+6. [การทดสอบ (Tests)](#tests)
+7. [ความปลอดภัยและ Privacy](#ความปลอดภัยและ-privacy)
 
 ---
 
 ## Requirements
 
-- **Python 3.10+**
+- **Python 3.10+** (สำหรับรัน Web Server เสิร์ฟ Static Assets และ API)
 - **Modern Web Browser** (Chrome, Edge, Firefox, Safari) รองรับ WebAssembly สำหรับ In-Browser OCR
-- **Docker** (สำหรับ LiteLLM proxy — จำเป็นเฉพาะเมื่อต้องการเปิดใช้ LLM Layer)
-- API keys (ทางเลือก - ไม่จำเป็นหากใช้ In-Browser OCR):
-  - `OCRSPACE_API_KEY` — ฟรีที่ https://ocr.space/ocrapi (สำหรับ Cloud OCR fallback)
-  - `LITELLM_API_KEY` — จาก LiteLLM proxy ของคุณ (สำหรับ LLM classifier)
+- API keys: **ไม่จำเป็น** โมเดล PaddleOCR และเอนจินทั้งหมดรันในเครื่องและในเบราว์เซอร์ 100%
 
 ---
 
@@ -54,12 +50,8 @@ cd pii-guardrail
 # 2. สร้าง Python Virtual Environment
 python -m venv .venv
 
-# 3. ติดตั้ง Dependencies ทั้งหมด (dev รวม ocr, web, presidio, secrets, pytest)
+# 3. ติดตั้ง Dependencies (dev รวม ocr, web, test)
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-
-# 4. ตั้งค่า Environment (คีย์จริง — ไฟล์ .env จะถูก gitignore ไม่ขึ้น git)
-Copy-Item .env.example .env
-# หากต้องการใช้ Cloud OCR หรือ LLM ให้เปิดแก้ .env ใส่คีย์ที่เกี่ยวข้อง
 ```
 
 > **หมายเหตุ:** โมเดล PaddleOCR และ WebAssembly Runtime สำหรับรันบนหน้าเว็บถูกบรรจุไว้ในโฟลเดอร์ `web_interface/` แล้ว สามารถรัน In-Browser OCR ในเครื่องได้ทันที 100% โดยไม่ต้องโหลดโมเดลภายนอกและไม่ต้องใช้ API Key ใด ๆ
@@ -99,7 +91,7 @@ Copy-Item .env.example .env
 
 ## โครงสร้างผลลัพธ์ OCR (Data Structure)
 
-ผลลัพธ์ของ In-Browser OCR ถูกออกแบบมาให้อยู่ในโครงสร้างแบบ **Hierarchical Structure** ที่เก็บทั้งระดับประโยค (สำหรับให้อ่านเข้าใจบริบทและรัน Regex) และระดับคำย่อย (สำหรับใช้ถมดำเฉพาะจุด):
+ผลลัพธ์ของ In-Browser OCR ถูกออกแบบมาให้อยู่ในโครงสร้างแบบ **Hierarchical Structure** ที่เก็บทั้งระดับประโยค (สำหรับให้อ่านเข้าใจบริบทและรัน Regex/LLM) และระดับคำย่อย (สำหรับใช้ถมดำเฉพาะจุด):
 
 ### ตัวอย่าง JSON Output
 
@@ -196,37 +188,21 @@ const boxesToRedact = getRedactionBoxes(sentence, detectedPII);
 
 ---
 
-## สถาปัตยกรรมการตรวจจับ (Detection Layers)
-
-สำหรับ Backend Pipeline ระบบรองรับการผสมผสานหลายชั้นตรวจจับ (Union Multi-Layer):
-
-| Layer | รับผิดชอบ | ทำงานที่ | หมายเหตุ |
-|---|---|---|---|
-| **In-Browser PaddleOCR** | ข้อความ + พิกัดประโยคและคำรายคำ | Client Browser (ONNX WASM) | 100% Local / Zero Data Leak |
-| **Pattern Classifier** | email, เบอร์โทร, บัตร ปชช.ไทย (checksum), ที่อยู่, บัญชีธนาคาร, secrets | Local Python | Source of truth เสมอ |
-| **LLM Classifier** | ชื่อบุคคล, หน่วยงาน/องค์กร (Whole-page Context) | LiteLLM / Remote | วิเคราะห์บริบททั้งหน้า |
-| **Presidio (Pattern-only)** | บัตรเครดิต, IP Address, IBAN, Crypto Wallet | Local Python (~110MB) | ไม่ต้องโหลดโมเดลใหญ่ |
-| **detect-secrets** | AWS/GitHub/GitLab tokens, Private Keys, JWT | Local Python (~30MB) | เปิดเฉพาะ High-precision plugins |
-
----
-
 ## Tests
 
 ทดสอบความถูกต้องของตรรกะการรวมประโยค, การแยกคอลัมน์, และการสับคำภาษาไทย:
 
 ```powershell
-# รัน Python Unit Tests ทั้งหมด (106 tests)
+# รัน Python Unit Tests ทั้งหมด
 .\.venv\Scripts\python.exe -m pytest tests/unit -q
 
-# รันการทดสอบครอบคลุมทั้งหมด
-.\.venv\Scripts\python.exe -m pytest -q
+# รันการทดสอบ Property-based tests
+.\.venv\Scripts\python.exe -m pytest tests/property -q
 ```
 
 ---
 
 ## ความปลอดภัยและ Privacy
 
-- ไฟล์ `.env` (คีย์จริง) **ถูก gitignore ไว้ ไม่ขึ้น git**
 - In-Browser OCR ประมวลผลบนเครื่องของผู้ใช้ทั้งหมด ข้อมูลภาพไม่รั่วไหลออกสู่อินเทอร์เน็ต
 - ชุดทดสอบและโมเดล ONNX พร้อมรันแบบ Offline ได้ทันทีหลังจาก Clone โปรเจกต์
-
