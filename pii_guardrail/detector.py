@@ -898,24 +898,17 @@ def classify_segment(text: str) -> set[SensitiveCategory]:
             categories.add(SensitiveCategory.API_KEY)
             break
 
-    # --- Names and organizations (Requirements 3.2, 3.3, 3.9) ---
-    # Run name/org heuristics on text with structured tokens (emails, URLs)
-    # removed, so a name-shaped local part (e.g. "john" in "john@x.com") does
-    # not produce a spurious PERSON_NAME match.
-    name_text = _strip_structured(text)
-
-    if _has_thai(text):
-        if _match_thai_org(text):
-            categories.add(SensitiveCategory.ORGANIZATION_NAME)
-        if _match_thai_person(text):
-            categories.add(SensitiveCategory.PERSON_NAME)
-
-    if _match_latin_org(name_text):
-        categories.add(SensitiveCategory.ORGANIZATION_NAME)
-
-    if _match_latin_person(name_text):
-        categories.add(SensitiveCategory.PERSON_NAME)
-
+    # --- Names and organizations: delegated to the LLM classifier ---
+    # PERSON_NAME / ORGANIZATION_NAME are intentionally NOT produced by the
+    # deterministic patterns anymore. The old regex heuristics (Thai honorific
+    # prefixes, Latin "two capitalized words = a name", org keyword lists) were
+    # high-recall but noisy: they flagged ordinary headings/labels such as
+    # "Tuition Fee", "Grand Total", or "Payment Method" as person names. Names
+    # and organizations require context to judge, which the whole-page LLM
+    # classifier (LiteLLMClassifier) does far more accurately. Patterns now stay
+    # focused on what they detect reliably -- structured values (email, phone,
+    # money, dates), credentials, and Thai identifiers (national ID, bank
+    # account, license plate, address) -- and the LLM owns names/orgs.
     return categories
 
 

@@ -238,6 +238,11 @@ def _latin_org(draw) -> tuple[Cat, str]:
     return Cat.ORGANIZATION_NAME, f"{name} {kw_text}{trailing_dot}"
 
 
+# NOTE: person-name and organization-name strategies are intentionally NOT in
+# this union. PERSON_NAME / ORGANIZATION_NAME are no longer produced by the
+# deterministic patterns -- they are owned by the whole-page LLM classifier
+# (see pii_guardrail.litellm_backend). This property covers only the categories
+# the patterns are the source of truth for (structured values + credentials).
 _CATEGORY_STRATEGIES = st.one_of(
     _phone(),
     _url(),
@@ -246,10 +251,6 @@ _CATEGORY_STRATEGIES = st.one_of(
     _percent(),
     _api_key(),
     _access_token(),
-    _thai_person(),
-    _thai_org(),
-    _latin_person(),
-    _latin_org(),
 )
 
 
