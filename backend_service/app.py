@@ -40,6 +40,18 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+# Load environment variables from a local .env file (repo root) at import time,
+# BEFORE any env var is read, so keys can live in .env instead of the shell.
+# Optional: if python-dotenv is not installed the app still works with real env
+# vars. Existing environment values take precedence over the file (override=False).
+try:
+    from dotenv import load_dotenv
+
+    _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+    load_dotenv(dotenv_path=_ENV_PATH, override=False)
+except Exception:  # noqa: BLE001 - .env loading is a convenience, never fatal
+    pass
+
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, Request, UploadFile
