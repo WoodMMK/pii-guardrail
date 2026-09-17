@@ -5,28 +5,40 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Thai Image PII Guardrail</title>
     <link rel="stylesheet" href="styles.css" />
+    <script src="vendor/ort.min.js"></script>
   </head>
   <body>
     <main class="app">
-      <h1>Thai Image PII Guardrail</h1>
-      <p class="intro">
-        Upload a PNG or JPEG image to detect and redact sensitive data.
-      </p>
+      <header class="app-header">
+        <div class="ocr-badge">
+          <span class="badge-dot"></span>
+          <span>PaddleOCR In-Browser (100% Local / Zero External API)</span>
+        </div>
+        <h1>Thai Document OCR & Bounding Box Inspector</h1>
+        <p class="intro">
+          Local client-side OCR powered by PaddleOCR ONNX Web. Extracts text and sentence-level bounding boxes directly in your browser without uploading images to any external API.
+        </p>
+      </header>
 
       <form id="upload-form" class="upload-form">
-        <label for="file-input" class="file-label">Select an image</label>
-        <input
-          id="file-input"
-          name="image"
-          type="file"
-          accept="image/png,image/jpeg"
-          required
-        />
-        <button id="submit-btn" type="submit">Redact image</button>
+        <div class="form-row">
+          <label for="file-input" class="file-label">Select Document / Image (PNG, JPEG)</label>
+          <input
+            id="file-input"
+            name="image"
+            type="file"
+            accept="image/png,image/jpeg"
+            required
+          />
+        </div>
+        <div class="form-actions">
+          <button id="submit-btn" type="submit" class="btn-primary">
+            🔍 Run In-Browser OCR
+          </button>
+        </div>
       </form>
 
-      <!-- Processing status indicator (Requirement 9.5). Hidden until a
-           request is in flight; shown via app.js while awaiting the response. -->
+      <!-- Processing status indicator -->
       <div
         id="status-indicator"
         class="status-indicator"
@@ -36,25 +48,30 @@
         hidden
       >
         <span class="spinner" aria-hidden="true"></span>
-        <span class="status-text">Processing...</span>
+        <span id="status-text" class="status-text">Processing image with PaddleOCR...</span>
       </div>
 
-      <!-- Populated by task 16.2 (results rendering + download control). -->
-      <div id="result-container" class="result-container"></div>
+      <!-- Side-by-side workspace: Document preview & bounding boxes alongside OCR inspection -->
+      <div class="ocr-workspace-layout">
+        <div class="ocr-preview-column">
+          <!-- Visual Preview with Interactive Bounding Boxes Overlay -->
+          <div id="result-container" class="result-container"></div>
+        </div>
 
-      <!-- Populated by task 16.2 (error message / warnings rendering). -->
-      <div id="error-container" class="error-container" role="alert"></div>
+        <div class="ocr-debug-column">
+          <!-- Error message container -->
+          <div id="error-container" class="error-container" role="alert"></div>
 
-      <!-- OCR debug view: shows the raw text the OCR engine read, each segment
-           with its confidence and bounding box. Collapsed by default; toggled
-           open to inspect what OCR actually recognized. Populated by app.js. -->
-      <details id="ocr-debug" class="ocr-debug" hidden>
-        <summary class="ocr-debug-summary">
-          OCR debug &mdash; raw recognized text
-          <span id="ocr-debug-count" class="ocr-debug-count"></span>
-        </summary>
-        <div id="ocr-debug-body" class="ocr-debug-body"></div>
-      </details>
+          <!-- OCR debug view: shows the recognized sentences and bounding boxes -->
+          <details id="ocr-debug" class="ocr-debug" hidden open>
+            <summary class="ocr-debug-summary">
+              <span>📋 Recognized Sentences & Bounding Boxes</span>
+              <span id="ocr-debug-count" class="ocr-debug-count"></span>
+            </summary>
+            <div id="ocr-debug-body" class="ocr-debug-body"></div>
+          </details>
+        </div>
+      </div>
     </main>
 
     <script type="module" src="app.js"></script>

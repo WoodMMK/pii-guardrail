@@ -1,174 +1,232 @@
 # PII Guardrail สำหรับรูปภาพ (POC)
 
-Guardrail ที่สแกนรูปภาพเพื่อ **ตรวจจับและเบลอ (redact) ข้อมูลส่วนบุคคล (PII)** ก่อนที่ผู้ใช้จะอัปโหลดภาพไปยัง AI ภายนอก
-
-Workflow:
+ระบบ Guardrail สำหรับสแกนรูปภาพเอกสารเพื่อ **ตรวจจับและเบลอ (redact) ข้อมูลส่วนบุคคล (PII)** ก่อนส่งต่อรูปภาพไปยัง AI ภายนอก รองรับทั้งสถาปัตยกรรมแบบ **100% In-Browser OCR (WebAssembly / Zero External API)** และ Backend Pipeline ผสมผสาน Multi-layer Classifiers
 
 ```
-image → OCR → Classifier (Pattern + LLM + Presidio + detect-secrets) → Redactor (กล่องดำ)
+[ เอกสาร / รูปภาพ ]
+        │
+        ▼
+[ In-Browser PaddleOCR (ONNX Runtime Web) ]
+   ├── ตรวจจับขอบเขตข้อความ & แยกคอลัมน์อัตโนมัติ (Column Margins & Gap Analysis)
+   ├── สับคำภาษาไทยรายคำ (Intl.Segmenter + Proportional Glyph Boxes)
+   └── สร้างผลลัพธ์โครงสร้างลำดับชั้น (Sentences + Word-Level Bounding Boxes)
+        │
+        ▼
+[ Classifier Layers (Pattern + LLM + Presidio + detect-secrets) ]
+        │
+        ▼
+[ Pinpoint Redactor (ถมดำเฉพาะคำที่เป็น PII โดยไม่ปิดทับ Label รอบข้าง) ]
 ```
 
-> **สถานะ: POC** — ปัจจุบัน OCR และ LLM เรียกผ่าน third-party (OCR.space / OpenRouter ผ่าน LiteLLM) เหมาะกับการทดสอบด้วยข้อมูลที่ไม่ใช่ข้อมูลจริง สำหรับ production ควรย้ายไป self-host (ดู [Roadmap](#roadmap))
+---
+
+## สารบัญ
+
+1. [ความต้องการของระบบ (Requirements)](#requirements)
+2. [การติดตั้งและ Setup](#setup)
+3. [วิธีรันและทดลองใช้งานหน้าเว็บ (Web Interface)](#การรันและทดลองใช้งานหน้าเว็บ-web-interface)
+4. [โครงสร้างผลลัพธ์ OCR (Data Structure)](#โครงสร้างผลลัพธ์-ocr-data-structure)
+5. [คำแนะนำสำหรับทีมที่นำไปทำ Pattern Filter ต่อ (Word-Level Pinpoint Redaction)](#คำแนะนำสำหรับทีมที่นำไปทำ-pattern-filter-ต่อ-word-level-pinpoint-redaction)
+6. [สถาปัตยกรรมการตรวจจับ (Detection Layers)](#สถาปัตยกรรมการตรวจจับ-detection-layers)
+7. [การทดสอบ (Tests)](#tests)
+8. [ความปลอดภัยและ Privacy](#ความปลอดภัยและ-privacy)
 
 ---
 
 ## Requirements
 
 - **Python 3.10+**
-- **Node.js** (สำหรับรัน frontend tests เท่านั้น — ตัวเว็บเสิร์ฟผ่าน backend)
-- **Docker** (สำหรับ LiteLLM proxy — เฉพาะเมื่อใช้ LLM layer)
-- API keys:
-  - `OCRSPACE_API_KEY` — ฟรีที่ https://ocr.space/ocrapi
-  - `LITELLM_API_KEY` — จาก LiteLLM proxy ของคุณ
+- **Modern Web Browser** (Chrome, Edge, Firefox, Safari) รองรับ WebAssembly สำหรับ In-Browser OCR
+- **Docker** (สำหรับ LiteLLM proxy — จำเป็นเฉพาะเมื่อต้องการเปิดใช้ LLM Layer)
+- API keys (ทางเลือก - ไม่จำเป็นหากใช้ In-Browser OCR):
+  - `OCRSPACE_API_KEY` — ฟรีที่ https://ocr.space/ocrapi (สำหรับ Cloud OCR fallback)
+  - `LITELLM_API_KEY` — จาก LiteLLM proxy ของคุณ (สำหรับ LLM classifier)
 
 ---
 
 ## Setup
 
 ```powershell
-# 1. clone + เข้าโฟลเดอร์
+# 1. Clone repository และเข้าสู่โฟลเดอร์
 git clone https://github.com/WoodMMK/pii-guardrail.git
 cd pii-guardrail
 
-# 2. สร้าง virtual environment
+# 2. สร้าง Python Virtual Environment
 python -m venv .venv
 
-# 3. ติดตั้ง dependencies (dev = ครบทุก extra: ocr, web, ner, presidio, secrets, test)
+# 3. ติดตั้ง Dependencies ทั้งหมด (dev รวม ocr, web, presidio, secrets, pytest)
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 
-# 4. ตั้งค่า environment (คีย์จริง — ไฟล์นี้ถูก gitignore ไม่ขึ้น git)
+# 4. ตั้งค่า Environment (คีย์จริง — ไฟล์ .env จะถูก gitignore ไม่ขึ้น git)
 Copy-Item .env.example .env
-# แล้วแก้ .env ใส่ OCRSPACE_API_KEY และ LITELLM_API_KEY
+# หากต้องการใช้ Cloud OCR หรือ LLM ให้เปิดแก้ .env ใส่คีย์ที่เกี่ยวข้อง
 ```
 
-> **หมายเหตุ:** Presidio ใช้ spaCy blank pipeline (ไม่ต้องดาวน์โหลด model). detect-secrets และ Presidio รันในเครื่อง ไม่ต้องใช้คีย์
+> **หมายเหตุ:** โมเดล PaddleOCR และ WebAssembly Runtime สำหรับรันบนหน้าเว็บถูกบรรจุไว้ในโฟลเดอร์ `web_interface/` แล้ว สามารถรัน In-Browser OCR ในเครื่องได้ทันที 100% โดยไม่ต้องโหลดโมเดลภายนอกและไม่ต้องใช้ API Key ใด ๆ
 
 ---
 
-## การรัน
+## การรันและทดลองใช้งานหน้าเว็บ (Web Interface)
 
-### เปิด server (เสิร์ฟทั้งเว็บ + API)
+### 1. สตาร์ท Web Server
+
+รันคำสั่งเปิดเครื่องบริการ (FastAPI ทำหน้าที่เสิร์ฟ Static Web Interface, ONNX Models และ API):
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn backend_service.app:app --host 127.0.0.1 --port 8000
 ```
 
-เปิดเบราว์เซอร์ที่ **http://127.0.0.1:8000**
+เปิดเบราว์เซอร์ไปที่: **http://127.0.0.1:8000**
 
-- app โหลด key จาก `.env` อัตโนมัติ (ไม่ต้องตั้ง env ใน shell)
-- **frontend กับ API เป็น server เดียวกัน** (FastAPI เสิร์ฟ static frontend ที่ `/` และ API ที่ `/api/*`) ไม่ต้องเปิด server แยก
+### 2. วิธีทดลองใช้งาน (How to Test)
 
-### LiteLLM proxy (เฉพาะเมื่อใช้ LLM layer)
+1. **เลือกรูปภาพ**: กดเลือกเอกสารภาษาไทย/อังกฤษ (ไฟล์ PNG หรือ JPEG เช่น ประกาศราชการ, สัญญา, สลิป, หรือตารางข้อมูล)
+2. **กดปุ่ม "🔍 Run In-Browser OCR"**:
+   - ระบบจะประมวลผลด้วยโมเดล PaddleOCR (DBNet Detection + CRNN Recognition) ผ่าน ONNX Runtime Web ในเบราว์เซอร์ของคุณโดยตรง
+   - **Privacy 100%**: รูปภาพไม่ถูกส่งไปยังเซิร์ฟเวอร์ภายนอกแม้แต่ไบต์เดียว
+3. **ตรวจสอบผลลัพธ์ผ่าน Side-by-Side Workspace Layout**:
+   - **ฝั่งซ้าย (Document Preview)**: แสดงภาพเอกสารพร้อมเส้นกรอบ Bounding Box แบบลอยตามสายตา (**Sticky Preview**)
+   - **ฝั่งขวา (OCR Inspection Table)**: แสดงตารางผลลัพธ์ข้อความและค่าพิกัด
+   - **Hover to Highlight & Auto-Scroll**: เมื่อเลื่อนเมาส์ชี้แถวใดในตาราง ภาพฝั่งซ้ายจะเลื่อน (**Smooth Scroll**) จัดตำแหน่งให้กล่องข้อความสีแดงเด่นชัดอยู่ตรงกลางสายตาทันที แม้เอกสารจะยาวหลายหน้า
+4. **สลับมุมมองได้ตามต้องการ**:
+   - `📄 Sentences View`: แสดงประโยค/บรรทัดเต็ม สะอาดตา อ่านง่าย
+   - `🔤 Words View`: แสดงตารางแจกแจงรายคำเดี่ยว ๆ พร้อมพิกัด `(x, y, w, h)` เฉพาะของคำนั้น
+5. **คัดลอกผลลัพธ์ JSON**:
+   - ปุ่ม `📋 Copy Sentences + Words JSON`: ได้ JSON โครงสร้างลำดับชั้นครบถ้วน
+   - ปุ่ม `📋 Copy Words Only JSON`: ได้ Array พิกัดรายคำสำหรับนำไปประมวลผลต่อ
 
-LLM layer ต้องการ LiteLLM proxy รันอยู่ที่ port 4000 (คนละ repo — `AI center/LiteLLM`):
+---
 
-```powershell
-docker compose up -d litellm
+## โครงสร้างผลลัพธ์ OCR (Data Structure)
+
+ผลลัพธ์ของ In-Browser OCR ถูกออกแบบมาให้อยู่ในโครงสร้างแบบ **Hierarchical Structure** ที่เก็บทั้งระดับประโยค (สำหรับให้อ่านเข้าใจบริบทและรัน Regex) และระดับคำย่อย (สำหรับใช้ถมดำเฉพาะจุด):
+
+### ตัวอย่าง JSON Output
+
+```json
+[
+  {
+    "text": "ชื่อ นายสมชาย ใจดี เบอร์โทร 081-234-5678",
+    "box": {
+      "x": 120,
+      "y": 450,
+      "width": 820,
+      "height": 38
+    },
+    "confidence": 0.94,
+    "words": [
+      {
+        "text": "ชื่อ",
+        "box": { "x": 120, "y": 450, "width": 55, "height": 38 },
+        "confidence": 0.96
+      },
+      {
+        "text": "นาย",
+        "box": { "x": 180, "y": 450, "width": 60, "height": 38 },
+        "confidence": 0.95
+      },
+      {
+        "text": "สมชาย",
+        "box": { "x": 245, "y": 450, "width": 110, "height": 38 },
+        "confidence": 0.93
+      },
+      {
+        "text": "ใจดี",
+        "box": { "x": 360, "y": 450, "width": 80, "height": 38 },
+        "confidence": 0.92
+      },
+      {
+        "text": "เบอร์โทร",
+        "box": { "x": 450, "y": 450, "width": 120, "height": 38 },
+        "confidence": 0.95
+      },
+      {
+        "text": "081-234-5678",
+        "box": { "x": 580, "y": 450, "width": 360, "height": 38 },
+        "confidence": 0.97
+      }
+    ]
+  }
+]
 ```
 
-ถ้าไม่เปิด LiteLLM ระบบยังทำงานได้ด้วย **pattern + Presidio + detect-secrets** (แค่ไม่มี LLM จับชื่อ/องค์กร)
+---
+
+## คำแนะนำสำหรับทีมที่นำไปทำ Pattern Filter ต่อ (Word-Level Pinpoint Redaction)
+
+### ปัญหาของการ Redact ระดับบรรทัด (The Over-Redaction Problem)
+
+ในการทำ Document Redaction แบบดั้งเดิม OCR จะส่งกลับมาเฉพาะกล่องข้อความระดับบรรทัด (`sentence.box`):
+- หากเราตรวจพบเบอร์โทรศัพท์ `081-234-5678` ในประโยค `"เบอร์โทร 081-234-5678"`
+- แล้วเรานำ `sentence.box` ไปถมดำ **ทั้งบรรทัดจะกลายเป็นแถบดำทั้งหมด** ทำให้คำว่า `"เบอร์โทร"` ซึ่งเป็นเพียง Label ปกติหายไปด้วย ส่งผลให้เอกสารเสียบริบทและอ่านไม่รู้เรื่อง (Over-redaction)
+
+### ประโยชน์ของโครงสร้างที่เตรียมไว้ให้
+
+ในโมดูลนี้ เราได้พัฒนาเอนจินตัดคำภาษาไทย (`Intl.Segmenter`) ควบคู่กับการคำนวณ **Proportional Glyph Bounding Boxes** (โดยคัดกรองสระและวรรณยุกต์ซ้อนแนวตั้งออก ไม่ให้เกิดปัญหากล่องเยื้อง) ทำให้ **ทุกประโยคมีพิกัดเฉพาะเจาะจงของแต่ละคำ (`words: [...]`) แนบมาด้วยเสมอ**
+
+### วิธีนำไปใช้ใน Pattern Filter & Redactor
+
+คนที่นำข้อมูลชุดนี้ไปทำ Pattern Filter ต่อ สามารถทำได้ง่ายดายดังนี้:
+
+1. **Match ระดับประโยค**: ใช้ Regex / LLM ตรวจสอบ `sentence.text` เพื่อดูบริบทและจับคู่ Pattern ของ PII
+2. **สกัดเฉพาะกล่องของคำที่เป็น PII**: เมื่อพบข้อความ PII ในประโยค ให้ค้นหาคำที่ตรงกันใน `sentence.words` แล้วดึงเฉพาะ `word.box` ของคำนั้นออกมา
+3. **วาดกล่องดำเฉพาะจุด**: ส่งเฉพาะ `word.box` ไปยัง Redactor เพื่อถมดำ
+
+#### ตัวอย่างการเรียกใช้ฟังก์ชัน `getRedactionBoxes`:
+
+```javascript
+import { getRedactionBoxes } from "./paddle_ocr.js";
+
+// ตัวอย่างประโยคที่อ่านได้จาก OCR
+const sentence = {
+  text: "ติดต่อ นายสมชาย ใจดี โทร 081-234-5678",
+  box: { x: 100, y: 200, width: 600, height: 35 },
+  words: [ /* ... ข้อมูล words จาก OCR ... */ ]
+};
+
+// เมื่อ Pattern Filter ตรวจพบ PII ในบรรทัดนี้
+const detectedPII = ["081-234-5678", "สมชาย"];
+
+// เรียกฟังก์ชันดึงกล่องเฉพาะคำที่เป็น PII
+const boxesToRedact = getRedactionBoxes(sentence, detectedPII);
+
+// ผลลัพธ์: boxesToRedact จะมีเฉพาะกล่องของ "081-234-5678" และ "สมชาย"
+// คำว่า "ติดต่อ", "นาย", "โทร" จะไม่ถูกถมดำ คงความสมบูรณ์ของเอกสาร 100%!
+```
 
 ---
 
-## Environment variables
+## สถาปัตยกรรมการตรวจจับ (Detection Layers)
 
-| ตัวแปร | จำเป็น | ค่าเริ่มต้น | คำอธิบาย |
-|---|---|---|---|
-| `OCRSPACE_API_KEY` | ใช่ (สำหรับ cloud OCR) | `helloworld` (ถูก throttle) | คีย์ OCR.space |
-| `LITELLM_API_KEY` | สำหรับ LLM layer | — | Bearer key ของ LiteLLM proxy |
-| `LITELLM_BASE_URL` | ไม่ | `http://localhost:4000/v1` | endpoint ของ LiteLLM |
-| `PII_GUARDRAIL_LLM_MODEL` | ไม่ | `Model_B` | ชื่อ model ที่จะเรียก (ควรเป็น non-reasoning) |
-| `OCRSPACE_LANGUAGE` | ไม่ | `tha` | ภาษาที่ให้ OCR.space อ่าน |
-| `PII_GUARDRAIL_OCR_BACKEND` | ไม่ | `ocrspace` | ตั้ง `paddle` เพื่อใช้ PaddleOCR local แทน |
-
-ดูตัวอย่างครบใน [`.env.example`](.env.example)
-
----
-
-## Architecture
-
-### Detection layers (ผลรวมกันแบบ union)
+สำหรับ Backend Pipeline ระบบรองรับการผสมผสานหลายชั้นตรวจจับ (Union Multi-Layer):
 
 | Layer | รับผิดชอบ | ทำงานที่ | หมายเหตุ |
 |---|---|---|---|
-| **Pattern** (regex เขียนเอง) | email, เบอร์, เงิน, วันที่, บัตร ปชช.ไทย (checksum), ที่อยู่ไทย, ทะเบียนรถ, บัญชีธนาคาร, secret | local | source of truth เสมอ |
-| **LLM** (LiteLLM / OpenRouter) | ชื่อคน, องค์กร, ที่อยู่ (whole-page, ดูบริบททั้งหน้า) | remote | เข้าใจ OCR ที่เพี้ยน |
-| **Presidio** (pattern-only, ไม่มี NER) | credit card, IP, IBAN, crypto wallet | local (~110MB) | blank spaCy, ไม่โหลด model |
-| **detect-secrets** (Yelp) | AWS/GitHub/GitLab keys, JWT, private key ฯลฯ | local (~30MB) | เปิดเฉพาะ plugin แม่นสูง (ปิด entropy) |
-
-> **หมายเหตุ:** ชื่อคน/องค์กร ถูกยกให้ **LLM รับผิดชอบเท่านั้น** — pattern ไม่จับชื่ออีกแล้ว (เดิมทำ false-positive กับหัวข้อเช่น "Tuition Fee")
-
-### OCR
-
-- ค่าเริ่มต้น: **OCR.space** (cloud, ~1.8s/ภาพ, อ่านไทย+อังกฤษ, คืน bounding box)
-- ทางเลือก: **PaddleOCR** local (ตั้ง `PII_GUARDRAIL_OCR_BACKEND=paddle`) — แม่นกว่าแต่ช้ามากบน CPU
-
-### ส่วนประกอบหลัก (`pii_guardrail/`)
-
-| ไฟล์ | หน้าที่ |
-|---|---|
-| `pipeline.py` | orchestrate: preprocess → OCR → detect → redact |
-| `detector.py` | pattern classifier (`classify_segment`) + `Detector` |
-| `composite.py` | รวมหลาย classifier layer (union + per-source breakdown) |
-| `litellm_backend.py` | LLM classifier (whole-page) |
-| `presidio_pattern_backend.py` | Presidio pattern-only classifier |
-| `secrets_backend.py` | detect-secrets classifier |
-| `ocrspace_backend.py` / `paddle_backend.py` | OCR backends |
-| `redactor.py` | วาดกล่องดำทับ region |
-| `preprocessor.py` | denoise / (optional) upscale+deskew / quality gate |
-| `models.py` | data models + `SensitiveCategory` enum |
-
-Web adapter อยู่ใน `backend_service/` (FastAPI) และ frontend ใน `web_interface/`
-
----
-
-## Debug view
-
-หน้าเว็บมี panel **"OCR debug"** (พับได้ ใต้ผลลัพธ์) แสดงทุก segment ที่ OCR อ่านได้ พร้อม:
-
-- ข้อความที่อ่านได้ + bounding box + confidence
-- **Classified as (by layer)** — แต่ละ classifier (pattern / llm / presidio / detect-secrets) จับ segment นั้นเป็นอะไร
-- **Redacted?** — segment นั้นถูกเบลอไหม
-
-ช่วย debug ว่าถ้า segment ไหนจับผิด/พลาด เป็นความผิดของ layer ไหน
+| **In-Browser PaddleOCR** | ข้อความ + พิกัดประโยคและคำรายคำ | Client Browser (ONNX WASM) | 100% Local / Zero Data Leak |
+| **Pattern Classifier** | email, เบอร์โทร, บัตร ปชช.ไทย (checksum), ที่อยู่, บัญชีธนาคาร, secrets | Local Python | Source of truth เสมอ |
+| **LLM Classifier** | ชื่อบุคคล, หน่วยงาน/องค์กร (Whole-page Context) | LiteLLM / Remote | วิเคราะห์บริบททั้งหน้า |
+| **Presidio (Pattern-only)** | บัตรเครดิต, IP Address, IBAN, Crypto Wallet | Local Python (~110MB) | ไม่ต้องโหลดโมเดลใหญ่ |
+| **detect-secrets** | AWS/GitHub/GitLab tokens, Private Keys, JWT | Local Python (~30MB) | เปิดเฉพาะ High-precision plugins |
 
 ---
 
 ## Tests
 
+ทดสอบความถูกต้องของตรรกะการรวมประโยค, การแยกคอลัมน์, และการสับคำภาษาไทย:
+
 ```powershell
-# Python unit tests (เร็ว)
+# รัน Python Unit Tests ทั้งหมด (106 tests)
 .\.venv\Scripts\python.exe -m pytest tests/unit -q
 
-# ทั้งหมด (รวม property-based — ช้ากว่า)
+# รันการทดสอบครอบคลุมทั้งหมด
 .\.venv\Scripts\python.exe -m pytest -q
-
-# Frontend tests
-cd web_interface
-npx vitest --run
 ```
 
 ---
 
-## Git branches
+## ความปลอดภัยและ Privacy
 
-| Branch | เนื้อหา |
-|---|---|
-| `master` | Baseline: OCR.space + LiteLLM Model_B |
-| `feature/pattern-filters` | + Presidio + detect-secrets + `.env` + per-source debug (branch หลักปัจจุบัน) |
-| `experiment/screenpipe-detector` | ทดลอง screenpipe image-detector (พักไว้ — ไม่เหมาะกับเอกสารไทย) |
+- ไฟล์ `.env` (คีย์จริง) **ถูก gitignore ไว้ ไม่ขึ้น git**
+- In-Browser OCR ประมวลผลบนเครื่องของผู้ใช้ทั้งหมด ข้อมูลภาพไม่รั่วไหลออกสู่อินเทอร์เน็ต
+- ชุดทดสอบและโมเดล ONNX พร้อมรันแบบ Offline ได้ทันทีหลังจาก Clone โปรเจกต์
 
----
-
-## Roadmap (POC → Production)
-
-- **Privacy:** ย้าย OCR + LLM ไป self-host (LLM บนการ์ดจอบริษัท + OCR ในเครื่อง) เพื่อไม่ให้ข้อมูลออกนอกองค์กร
-- **Client-side OCR:** กำลังพิจารณา Tesseract.js (รัน OCR ใน browser ภาพไม่ออกจากเครื่อง user)
-- **License:** ถ้าจะใช้ screenpipe model เชิงพาณิชย์ ต้องซื้อ license (CC BY-NC 4.0)
-
----
-
-## หมายเหตุด้านความปลอดภัย
-
-- `.env` (คีย์จริง) **ถูก gitignore ไม่ขึ้น git** — แชร์คีย์ผ่านช่องทางปลอดภัย ไม่ commit
-- LiteLLM proxy ในโปรเจกต์นี้ถูกถอด PII guardrail ของตัวเองออก (เพราะ app นี้คือ guardrail ที่ต้องเห็นข้อมูลเต็มเพื่อ classify) — ถ้ามีคนอื่นใช้ proxy ร่วม ควรพิจารณาเปิดกลับ

@@ -12,6 +12,161 @@
 // window.PII_GUARDRAIL_API_URL before this module runs, if needed.
 export const DEFAULT_API_URL = "/api/redact";
 
+import { runPaddleOcr, groupWordsIntoSentences, unionBoxes, getRedactionBoxes } from "./paddle_ocr.js";
+export { getRedactionBoxes };
+
+let currentOverlayData = null;
+let lastProcessedImage = null;
+let lastRawSegments = null;
+
+/**
+ * Draw or highlight bounding boxes on the preview canvas.
+ */
+export function drawBoundingBoxesOnCanvas(canvas, img, sentences, activeIndex = null, highlightCustomBox = null) {
+  if (!canvas || !img) return;
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+
+  if (Array.isArray(sentences)) {
+    sentences.forEach((s, idx) => {
+      const box = s && s.box ? s.box : null;
+      if (!box) return;
+
+      const isActive = activeIndex === idx;
+
+      ctx.lineWidth = isActive ? 3 : 1.5;
+      ctx.strokeStyle = isActive ? "#ef4444" : "#2563eb";
+      ctx.fillStyle = isActive ? "rgba(239, 68, 68, 0.22)" : "rgba(37, 99, 235, 0.12)";
+
+      ctx.fillRect(box.x, box.y, box.width, box.height);
+      ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+      // Badge label (#1, #2)
+      const label = `#${idx + 1}`;
+      ctx.font = "bold 13px system-ui, sans-serif";
+      const textMetrics = ctx.measureText(label);
+      const badgeW = textMetrics.width + 8;
+      const badgeH = 18;
+
+      const badgeY = Math.max(0, box.y - badgeH);
+      ctx.fillStyle = isActive ? "#ef4444" : "#2563eb";
+      ctx.fillRect(box.x, badgeY, badgeW, badgeH);
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(label, box.x + 4, badgeY + 14);
+    });
+  }
+
+  if (highlightCustomBox) {
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#f59e0b";
+    ctx.fillStyle = "rgba(245, 158, 11, 0.35)";
+    ctx.fillRect(highlightCustomBox.x, highlightCustomBox.y, highlightCustomBox.width, highlightCustomBox.height);
+    ctx.strokeRect(highlightCustomBox.x, highlightCustomBox.y, highlightCustomBox.width, highlightCustomBox.height);
+  }
+}
+
+/**
+ * Automatically scrolls the canvas wrapper smoothly to center the given box in view.
+ */
+export function scrollCanvasToBox(box) {
+  if (!box || !currentOverlayData || !currentOverlayData.canvas) return;
+  const canvas = currentOverlayData.canvas;
+  const wrapper = canvas.parentElement; // .ocr-canvas-wrapper
+  if (!wrapper || typeof wrapper.scrollTo !== "function") return;
+
+  const scale = canvas.clientHeight && canvas.height ? canvas.clientHeight / canvas.height : 1;
+  const boxTop = box.y * scale;
+  const boxHeight = box.height * scale;
+  const boxCenter = boxTop + boxHeight / 2;
+
+  const wrapperHeight = wrapper.clientHeight;
+  const targetScrollTop = boxCenter - wrapperHeight / 2;
+
+  wrapper.scrollTo({
+    top: Math.max(0, targetScrollTop),
+    behavior: "smooth",
+  });
+}
+
+/**
+ * Highlight a specific bounding box by index (or remove highlight with null).
+ */
+export function highlightPreviewBox(index) {
+  if (currentOverlayData && currentOverlayData.canvas && currentOverlayData.imgElement) {
+    const items = currentOverlayData.items || currentOverlayData.sentences;
+    drawBoundingBoxesOnCanvas(
+      currentOverlayData.canvas,
+      currentOverlayData.imgElement,
+      items,
+      index
+    );
+    if (index !== null && Array.isArray(items) && items[index] && items[index].box) {
+      scrollCanvasToBox(items[index].box);
+    }
+  }
+}
+
+/**
+ * Highlight a specific word-level box (in amber/gold) on the canvas.
+ */
+export function highlightWordBox(box) {
+  if (currentOverlayData && currentOverlayData.canvas && currentOverlayData.imgElement) {
+    drawBoundingBoxesOnCanvas(
+      currentOverlayData.canvas,
+      currentOverlayData.imgElement,
+      currentOverlayData.items || currentOverlayData.sentences,
+      null,
+      box
+    );
+    if (box) {
+      scrollCanvasToBox(box);
+    }
+  }
+}
+
+/**
+ * Render visual canvas with bounding boxes into the result container.
+ */
+export function renderCanvasPreview(imgElement, sentences, container) {
+  if (!container) return;
+  container.replaceChildren();
+
+  const figure = document.createElement("figure");
+  figure.className = "ocr-preview-figure";
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "ocr-canvas-wrapper";
+
+  const canvas = document.createElement("canvas");
+  canvas.id = "ocr-preview-canvas";
+  canvas.width = imgElement.naturalWidth || imgElement.width;
+  canvas.height = imgElement.naturalHeight || imgElement.height;
+
+  wrapper.appendChild(canvas);
+  figure.appendChild(wrapper);
+
+  const caption = document.createElement("figcaption");
+  caption.className = "ocr-preview-caption";
+  caption.textContent = `Visual Sentence Bounding Boxes (${sentences.length} detected sentences)`;
+  figure.appendChild(caption);
+
+  container.appendChild(figure);
+
+  currentOverlayData = {
+    canvas,
+    imgElement,
+    sentences,
+    items: sentences,
+  };
+
+  drawBoundingBoxesOnCanvas(canvas, imgElement, sentences, null);
+}
+
 /**
  * Resolve the backend endpoint URL. Prefers a runtime-configurable global,
  * falling back to the same-origin default.
@@ -173,7 +328,7 @@ export async function handleSubmit(event, elements, hooks = {}) {
     ocrDebugCount,
   } = elements || {};
 
-  // Clear previous output placeholders (populated by task 16.2).
+  // Clear previous output placeholders.
   if (resultContainer) resultContainer.replaceChildren();
   if (errorContainer) errorContainer.replaceChildren();
 
@@ -183,23 +338,66 @@ export async function handleSubmit(event, elements, hooks = {}) {
   if (ocrDebug) ocrDebug.hidden = true;
 
   const file = fileInput && fileInput.files ? fileInput.files[0] : null;
-  const submit = hooks.submit || submitImage;
+  if (!file) return;
 
   showStatus(statusIndicator);
   setInFlight(submitBtn, true);
 
+  const statusTextEl = statusIndicator
+    ? statusIndicator.querySelector(".status-text")
+    : null;
+  const setStatusText = (msg) => {
+    if (statusTextEl) statusTextEl.textContent = msg;
+  };
+
   try {
-    const response = await submit(file);
-    if (typeof hooks.onResult === "function") {
-      hooks.onResult(response);
+    if (hooks.submit) {
+      // Injected submit (e.g. testing or custom hook)
+      const response = await hooks.submit(file);
+      if (typeof hooks.onResult === "function") {
+        hooks.onResult(response);
+      }
+    } else {
+      // Live browser environment: Run 100% In-Browser PaddleOCR!
+      setStatusText("Initializing In-Browser PaddleOCR models...");
+
+      const img = new Image();
+      const imgUrl = URL.createObjectURL(file);
+      img.src = imgUrl;
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+      });
+
+      const sentences = await runPaddleOcr(img, {
+        maxGapRatio: 1.2,
+        onProgress: (msg) => setStatusText(msg),
+      });
+
+      lastProcessedImage = img;
+      lastRawSegments = sentences.rawSegments || null;
+
+      // Render visual canvas with bounding boxes
+      renderCanvasPreview(img, sentences, resultContainer);
+
+      // Render debug table focusing on recognized sentences and bounding boxes
+      renderOcrDebug(sentences, elements);
+
+      if (ocrDebug) {
+        ocrDebug.open = true;
+        ocrDebug.hidden = false;
+      }
     }
   } catch (error) {
     if (typeof hooks.onError === "function") {
       hooks.onError(error);
+    } else {
+      renderError(error, elements);
     }
   } finally {
     hideStatus(statusIndicator);
     setInFlight(submitBtn, false);
+    setStatusText("Processing...");
   }
 }
 
@@ -242,11 +440,8 @@ export function summarizeCategories(regions) {
 /**
  * Render the raw OCR segments into the #ocr-debug panel.
  *
- * Shows every segment the OCR engine read (text, confidence, bounding box),
- * even non-sensitive text that never becomes a redaction region. Built safely
- * with createElement/textContent so recognized text is never interpreted as
- * markup. The panel is revealed only when there is at least one segment (or an
- * explicit empty note when OCR ran but found nothing).
+ * Shows every sentence / segment the OCR engine read (text, confidence, bounding box).
+ * Focused specifically on recognized sentence text and exact bounding box coordinates.
  *
  * @param {Array<{text?: string, confidence?: number, box?: object}>} segments
  * @param {object} elements - resolved elements from getElements().
@@ -260,12 +455,30 @@ export function renderOcrDebug(segments, elements) {
   body.replaceChildren();
   const list = Array.isArray(segments) ? segments : [];
 
-  // Always reveal the panel once a request has completed so the user can see
-  // "read N segments" (including 0) rather than the panel silently staying
-  // hidden. Keep it collapsed by default (the <details> element handles that).
   panel.hidden = false;
+
+  // Flatten all word-level segments across all sentences
+  const allWords = [];
+  list.forEach((s) => {
+    if (Array.isArray(s.words) && s.words.length > 0) {
+      s.words.forEach((w) => {
+        allWords.push({
+          text: w.text,
+          box: w.box,
+          confidence: w.confidence !== undefined ? w.confidence : s.confidence,
+        });
+      });
+    } else if (s && s.box) {
+      allWords.push({
+        text: s.text,
+        box: s.box,
+        confidence: s.confidence,
+      });
+    }
+  });
+
   if (countEl) {
-    countEl.textContent = `(${list.length} ${list.length === 1 ? "segment" : "segments"})`;
+    countEl.textContent = `(${list.length} segments · ${allWords.length} words)`;
   }
 
   if (list.length === 0) {
@@ -276,119 +489,300 @@ export function renderOcrDebug(segments, elements) {
     return;
   }
 
-  const table = document.createElement("table");
-  table.className = "ocr-table";
+  // Detect if segments carry PII categories (for legacy test compatibility)
+  const hasCategories = list.some(
+    (s) => (Array.isArray(s.categories) && s.categories.length > 0) || s.sources
+  );
 
-  const thead = document.createElement("thead");
-  const headRow = document.createElement("tr");
-  for (const heading of [
-    "#",
-    "Recognized text",
-    "Classified as (by layer)",
-    "Redacted?",
-    "Confidence",
-    "Box (x, y, w, h)",
-  ]) {
-    const th = document.createElement("th");
-    th.textContent = heading;
-    headRow.appendChild(th);
-  }
-  thead.appendChild(headRow);
-  table.appendChild(thead);
+  let viewMode = "sentences"; // "sentences" or "words"
 
-  const tbody = document.createElement("tbody");
-  list.forEach((segment, index) => {
-    const row = document.createElement("tr");
+  // Controls container (View toggle)
+  const controlsTop = document.createElement("div");
+  controlsTop.className = "ocr-controls-top";
 
-    const idxCell = document.createElement("td");
-    idxCell.className = "ocr-index";
-    idxCell.textContent = String(index + 1);
-    row.appendChild(idxCell);
+  const toggleContainer = document.createElement("div");
+  toggleContainer.className = "ocr-view-toggle";
 
-    const textCell = document.createElement("td");
-    textCell.className = "ocr-text";
-    const text = segment && typeof segment.text === "string" ? segment.text : "";
-    textCell.textContent = text;
-    row.appendChild(textCell);
+  const btnSentences = document.createElement("button");
+  btnSentences.type = "button";
+  btnSentences.className = "btn-toggle active";
+  btnSentences.textContent = `📄 Sentences View (${list.length})`;
 
-    // --- Classified categories, broken down BY LAYER (which classifier
-    // flagged what). Falls back to the merged category list when no per-source
-    // breakdown is available (older responses). ---
-    const categories =
-      segment && Array.isArray(segment.categories) ? segment.categories : [];
-    const sources =
-      segment && segment.sources && typeof segment.sources === "object"
-        ? segment.sources
-        : {};
-    const sourceNames = Object.keys(sources);
-    const catCell = document.createElement("td");
-    catCell.className = "ocr-categories";
+  const btnWords = document.createElement("button");
+  btnWords.type = "button";
+  btnWords.className = "btn-toggle";
+  btnWords.textContent = `🔤 Words View (${allWords.length})`;
 
-    if (categories.length === 0) {
-      const none = document.createElement("span");
-      none.className = "ocr-cat-none";
-      none.textContent = "(not sensitive)";
-      catCell.appendChild(none);
-    } else if (sourceNames.length > 0) {
-      // Per-layer breakdown: one line per source -> "<layer>: tag tag".
-      for (const src of sourceNames.sort()) {
-        const cats = Array.isArray(sources[src]) ? sources[src] : [];
-        if (cats.length === 0) continue;
-        const line = document.createElement("div");
-        line.className = "ocr-source-line";
+  toggleContainer.appendChild(btnSentences);
+  toggleContainer.appendChild(btnWords);
+  controlsTop.appendChild(toggleContainer);
 
-        const label = document.createElement("span");
-        label.className = "ocr-source-label";
-        label.textContent = `${src}:`;
-        line.appendChild(label);
+  const tableContainer = document.createElement("div");
+  tableContainer.className = "ocr-table-container";
 
-        for (const category of cats) {
-          const tag = document.createElement("span");
-          tag.className = "ocr-cat-tag";
-          tag.textContent = String(category);
-          line.appendChild(tag);
+  function renderTable() {
+    tableContainer.replaceChildren();
+
+    if (viewMode === "sentences") {
+      btnSentences.classList.add("active");
+      btnWords.classList.remove("active");
+
+      // Switch canvas overlay to sentence boxes
+      if (currentOverlayData && currentOverlayData.canvas && currentOverlayData.imgElement) {
+        currentOverlayData.items = list;
+        drawBoundingBoxesOnCanvas(currentOverlayData.canvas, currentOverlayData.imgElement, list, null);
+      }
+
+      const table = document.createElement("table");
+      table.className = "ocr-table";
+
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+
+      const headings = hasCategories
+        ? [
+            "#",
+            "Recognized sentence / text",
+            "Classified as (by layer)",
+            "Redacted?",
+            "Confidence",
+            "Box (x, y, w, h)",
+          ]
+        : [
+            "#",
+            "Recognized sentence / text",
+            "Confidence",
+            "Box (x, y, w, h)",
+          ];
+
+      for (const heading of headings) {
+        const th = document.createElement("th");
+        th.textContent = heading;
+        headRow.appendChild(th);
+      }
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+      list.forEach((segment, index) => {
+        const row = document.createElement("tr");
+        row.dataset.index = String(index);
+
+        const idxCell = document.createElement("td");
+        idxCell.className = "ocr-index";
+        idxCell.textContent = String(index + 1);
+        row.appendChild(idxCell);
+
+        const textCell = document.createElement("td");
+        textCell.className = "ocr-text";
+        const text = segment && typeof segment.text === "string" ? segment.text : "";
+        textCell.textContent = text;
+        row.appendChild(textCell);
+
+        if (hasCategories) {
+          const categories =
+            segment && Array.isArray(segment.categories) ? segment.categories : [];
+          const sources =
+            segment && segment.sources && typeof segment.sources === "object"
+              ? segment.sources
+              : {};
+          const sourceNames = Object.keys(sources);
+          const catCell = document.createElement("td");
+          catCell.className = "ocr-categories";
+
+          if (categories.length === 0) {
+            const none = document.createElement("span");
+            none.className = "ocr-cat-none";
+            none.textContent = "(not sensitive)";
+            catCell.appendChild(none);
+          } else if (sourceNames.length > 0) {
+            for (const src of sourceNames.sort()) {
+              const cats = Array.isArray(sources[src]) ? sources[src] : [];
+              if (cats.length === 0) continue;
+              const line = document.createElement("div");
+              line.className = "ocr-source-line";
+
+              const label = document.createElement("span");
+              label.className = "ocr-source-label";
+              label.textContent = `${src}:`;
+              line.appendChild(label);
+
+              for (const category of cats) {
+                const tag = document.createElement("span");
+                tag.className = "ocr-cat-tag";
+                tag.textContent = String(category);
+                line.appendChild(tag);
+              }
+              catCell.appendChild(line);
+            }
+          } else {
+            for (const category of categories) {
+              const tag = document.createElement("span");
+              tag.className = "ocr-cat-tag";
+              tag.textContent = String(category);
+              catCell.appendChild(tag);
+            }
+          }
+          row.appendChild(catCell);
+
+          const redacted =
+            segment && typeof segment.redacted === "boolean"
+              ? segment.redacted
+              : categories.length > 0;
+          const redCell = document.createElement("td");
+          redCell.className = redacted ? "ocr-redacted-yes" : "ocr-redacted-no";
+          redCell.textContent = redacted ? "yes" : "no";
+          row.appendChild(redCell);
         }
-        catCell.appendChild(line);
-      }
+
+        const confCell = document.createElement("td");
+        confCell.className = "ocr-confidence";
+        const conf = segment && Number.isFinite(segment.confidence) ? segment.confidence : null;
+        confCell.textContent = conf === null ? "-" : `${(conf * 100).toFixed(1)}%`;
+        row.appendChild(confCell);
+
+        const boxCell = document.createElement("td");
+        boxCell.className = "ocr-box";
+        const box = segment && segment.box ? segment.box : null;
+        boxCell.textContent = box
+          ? `${box.x}, ${box.y}, ${box.width}, ${box.height}`
+          : "-";
+        row.appendChild(boxCell);
+
+        // Interactive box highlight on hover
+        row.addEventListener("mouseenter", () => {
+          row.classList.add("active-row");
+          highlightPreviewBox(index);
+        });
+        row.addEventListener("mouseleave", () => {
+          row.classList.remove("active-row");
+          highlightPreviewBox(null);
+        });
+
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      tableContainer.appendChild(table);
     } else {
-      // No per-source info: show the merged category tags.
-      for (const category of categories) {
-        const tag = document.createElement("span");
-        tag.className = "ocr-cat-tag";
-        tag.textContent = String(category);
-        catCell.appendChild(tag);
+      // WORDS ONLY VIEW
+      btnWords.classList.add("active");
+      btnSentences.classList.remove("active");
+
+      // Switch canvas overlay to show all word boxes
+      if (currentOverlayData && currentOverlayData.canvas && currentOverlayData.imgElement) {
+        currentOverlayData.items = allWords;
+        drawBoundingBoxesOnCanvas(currentOverlayData.canvas, currentOverlayData.imgElement, allWords, null);
       }
+
+      const table = document.createElement("table");
+      table.className = "ocr-table";
+
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      ["#", "Recognized Word", "Confidence", "Word Box (x, y, w, h)"].forEach((h) => {
+        const th = document.createElement("th");
+        th.textContent = h;
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+      allWords.forEach((word, idx) => {
+        const row = document.createElement("tr");
+        row.dataset.index = String(idx);
+
+        const idxCell = document.createElement("td");
+        idxCell.className = "ocr-index";
+        idxCell.textContent = String(idx + 1);
+        row.appendChild(idxCell);
+
+        const textCell = document.createElement("td");
+        textCell.className = "ocr-text";
+        textCell.style.fontWeight = "600";
+        textCell.textContent = word.text;
+        row.appendChild(textCell);
+
+        const confCell = document.createElement("td");
+        confCell.className = "ocr-confidence";
+        const conf = word && Number.isFinite(word.confidence) ? word.confidence : null;
+        confCell.textContent = conf === null ? "-" : `${(conf * 100).toFixed(1)}%`;
+        row.appendChild(confCell);
+
+        const boxCell = document.createElement("td");
+        boxCell.className = "ocr-box";
+        const box = word && word.box ? word.box : null;
+        boxCell.textContent = box
+          ? `${box.x}, ${box.y}, ${box.width}, ${box.height}`
+          : "-";
+        row.appendChild(boxCell);
+
+        row.addEventListener("mouseenter", () => {
+          row.classList.add("active-row");
+          highlightPreviewBox(idx);
+        });
+        row.addEventListener("mouseleave", () => {
+          row.classList.remove("active-row");
+          highlightPreviewBox(null);
+        });
+
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      tableContainer.appendChild(table);
     }
-    row.appendChild(catCell);
+  }
 
-    // --- Redacted? indicator (derived from having any category) ---
-    const redacted =
-      segment && typeof segment.redacted === "boolean"
-        ? segment.redacted
-        : categories.length > 0;
-    const redCell = document.createElement("td");
-    redCell.className = redacted ? "ocr-redacted-yes" : "ocr-redacted-no";
-    redCell.textContent = redacted ? "yes" : "no";
-    row.appendChild(redCell);
-
-    const confCell = document.createElement("td");
-    confCell.className = "ocr-confidence";
-    const conf = segment && Number.isFinite(segment.confidence) ? segment.confidence : null;
-    confCell.textContent = conf === null ? "-" : `${(conf * 100).toFixed(1)}%`;
-    row.appendChild(confCell);
-
-    const boxCell = document.createElement("td");
-    boxCell.className = "ocr-box";
-    const box = segment && segment.box ? segment.box : null;
-    boxCell.textContent = box
-      ? `${box.x}, ${box.y}, ${box.width}, ${box.height}`
-      : "-";
-    row.appendChild(boxCell);
-
-    tbody.appendChild(row);
+  btnSentences.addEventListener("click", () => {
+    viewMode = "sentences";
+    renderTable();
   });
-  table.appendChild(tbody);
-  body.appendChild(table);
+
+  btnWords.addEventListener("click", () => {
+    viewMode = "words";
+    renderTable();
+  });
+
+  body.appendChild(controlsTop);
+  body.appendChild(tableContainer);
+
+  renderTable();
+
+  // Add Dual Copy JSON Action Buttons
+  const actionContainer = document.createElement("div");
+  actionContainer.className = "ocr-actions-bar";
+
+  const copySentencesBtn = document.createElement("button");
+  copySentencesBtn.type = "button";
+  copySentencesBtn.className = "btn-secondary";
+  copySentencesBtn.textContent = "📋 Copy Sentences + Words JSON";
+  copySentencesBtn.onclick = () => {
+    const jsonStr = JSON.stringify(list, null, 2);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(jsonStr).then(() => {
+        copySentencesBtn.textContent = "✅ Copied Sentences JSON!";
+        setTimeout(() => (copySentencesBtn.textContent = "📋 Copy Sentences + Words JSON"), 2000);
+      });
+    }
+  };
+  actionContainer.appendChild(copySentencesBtn);
+
+  const copyWordsBtn = document.createElement("button");
+  copyWordsBtn.type = "button";
+  copyWordsBtn.className = "btn-secondary";
+  copyWordsBtn.textContent = "📋 Copy Words Only JSON";
+  copyWordsBtn.onclick = () => {
+    const jsonStr = JSON.stringify(allWords, null, 2);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(jsonStr).then(() => {
+        copyWordsBtn.textContent = "✅ Copied Words JSON!";
+        setTimeout(() => (copyWordsBtn.textContent = "📋 Copy Words Only JSON"), 2000);
+      });
+    }
+  };
+  actionContainer.appendChild(copyWordsBtn);
+
+  body.appendChild(actionContainer);
 }
 
 /**

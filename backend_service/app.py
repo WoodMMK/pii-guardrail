@@ -42,6 +42,12 @@ from typing import TYPE_CHECKING
 
 # Load environment variables from a local .env file (repo root) at import time,
 # BEFORE any env var is read, so keys can live in .env instead of the shell.
+import mimetypes
+
+# Ensure .onnx and .wasm static files are served with correct MIME types
+mimetypes.add_type("application/octet-stream", ".onnx")
+mimetypes.add_type("application/wasm", ".wasm")
+
 # Optional: if python-dotenv is not installed the app still works with real env
 # vars. Existing environment values take precedence over the file (override=False).
 try:

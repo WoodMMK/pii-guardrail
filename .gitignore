@@ -36,6 +36,7 @@ _*.py
 _*.png
 _*.json
 *.tmp
+result.json
 check_server.txt
 boxes_diag.txt
 
@@ -56,4 +57,5 @@ redacted_result.png
 
 # --- Experiment: screenpipe ONNX model + scratch (not committed) ---
 _screenpipe/
-*.onnx
+web_interface/models/.cache/
+
