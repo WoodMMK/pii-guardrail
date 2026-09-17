@@ -43,20 +43,24 @@ ner = [
     "python-crfsuite>=0.9",
 ]
 
-# Optional Presidio classifier (assists pattern detection for English-language
-# PII: free-form person names, locations, credit cards, ...). Declared but
-# ISOLATED: the core never imports presidio_analyzer at module import time, so
-# `import pii_guardrail` works without it. Presidio runs locally (its spaCy NLP
-# engine executes in-process), so uploaded content never leaves the machine.
-# NOTE: Presidio also needs a spaCy English model, installed separately. The
-# SMALL model is the default (low memory, ~50MB RAM):
-#   python -m spacy download en_core_web_sm
-# For higher NER accuracy at the cost of ~500MB more RAM, install a larger model
-# and select it with the PII_GUARDRAIL_SPACY_MODEL env var, e.g.:
-#   python -m spacy download en_core_web_md   (then set PII_GUARDRAIL_SPACY_MODEL=en_core_web_md)
+# Optional Presidio PATTERN-ONLY classifier (structured PII: credit cards, IP
+# addresses, IBANs, crypto wallets, email/phone/URL). Declared but ISOLATED:
+# the core never imports presidio_analyzer at module import time, so
+# `import pii_guardrail` works without it. The default backend
+# (PresidioPatternClassifier) runs Presidio's regex recognizers with a BLANK
+# spaCy pipeline (tokenizer only) -- NO NER model download needed, ~110MB RAM.
+# spaCy is still required for the blank pipeline but no model file is fetched.
 presidio = [
     "presidio-analyzer>=2.2",
     "spacy>=3.7",
+]
+
+# Optional credential/secret detection via detect-secrets (Yelp). Declared but
+# ISOLATED: the core never imports detect_secrets at import time. Runs locally,
+# tiny footprint (~30MB), no ML model. Only high-precision plugins are used
+# (entropy plugins are disabled to avoid false positives on OCR text).
+secrets = [
+    "detect-secrets>=1.5",
 ]
 
 # Testing toolchain.
@@ -66,7 +70,7 @@ test = [
 ]
 
 dev = [
-    "pii_guardrail[ocr,web,ner,presidio,test]",
+    "pii_guardrail[ocr,web,ner,presidio,secrets,test]",
 ]
 
 [tool.setuptools.packages.find]

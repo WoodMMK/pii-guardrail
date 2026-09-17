@@ -44,6 +44,14 @@ class SensitiveCategory(str, Enum):
     PASSPORT_NUMBER = "passport_number"  # passport number (1-2 letters + 6-7 digits)
     JOB_TITLE = "job_title"  # job title / position (e.g. director, ผู้อำนวยการ)
 
+    # --- International structured identifiers (detected by Presidio patterns) ---
+    # These have well-defined formats (and often checksums) that regex/Presidio
+    # recognize reliably without any NER model.
+    CREDIT_CARD = "credit_card"  # 13-19 digit card number (Luhn-validated)
+    IP_ADDRESS = "ip_address"  # IPv4 / IPv6 address
+    IBAN = "iban"  # International Bank Account Number
+    CRYPTO_WALLET = "crypto_wallet"  # e.g. Bitcoin wallet address
+
 
 @dataclass(frozen=True)
 class BoundingBox:

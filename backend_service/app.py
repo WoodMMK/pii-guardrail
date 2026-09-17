@@ -139,32 +139,66 @@ def _build_ocr_engine() -> OCREngine:
 
 
 def _build_detector_with_optional_classifiers() -> Detector:
-    """Build a Detector, using the LiteLLM whole-page classifier when configured.
+    """Build a Detector wired with a composite of optional advisory classifiers.
 
-    The active classifier layer is
-    :class:`~pii_guardrail.litellm_backend.LiteLLMClassifier` -- a remote LLM
-    reached through a LiteLLM (OpenAI-compatible) proxy. It implements the
-    WHOLE-PAGE ``classify_segments`` hook: the Detector hands it every OCR
-    segment at once, it makes a single chat-completion call that reasons over
-    the ENTIRE page, and returns which segment indices are sensitive and their
-    categories. Seeing the whole page lets the model catch names/addresses that
-    a per-word NER misses -- including OCR-garbled fragments -- which is why it
-    replaced the (less reliable, sometimes-unavailable) HuggingFace NER layer.
+    Three complementary layers are combined in a
+    :class:`~pii_guardrail.composite.CompositeClassifier`, each optional and
+    degrading gracefully:
 
-    The model runs remotely, so this process stays light. It is enabled whenever
-    a LiteLLM API key is configured (``LITELLM_API_KEY``); otherwise
-    ``available`` is ``False`` and the Detector transparently falls back to
-    pattern-only classification (recording a warning per request, Requirement
-    5.3). The deterministic patterns in
-    :func:`~pii_guardrail.detector.classify_segment` always remain the source of
-    truth and are unioned with the model's results. Any unexpected error here
-    degrades to a plain pattern-only Detector, so the optional layer never
-    breaks the pipeline.
+    * :class:`~pii_guardrail.litellm_backend.LiteLLMClassifier` -- a remote LLM
+      (via a LiteLLM OpenAI-compatible proxy) that reasons over the WHOLE page
+      at once to catch names / organizations / addresses, robust to OCR errors.
+    * :class:`~pii_guardrail.presidio_pattern_backend.PresidioPatternClassifier`
+      -- Presidio's regex recognizers (NO NER) for internationally-structured
+      PII: credit cards, IP addresses, IBANs, crypto wallets, email/phone/URL.
+    * :class:`~pii_guardrail.secrets_backend.SecretsClassifier` -- detect-secrets
+      (high-precision plugins only) for credentials: AWS/GitHub/GitLab keys,
+      JWTs, private keys, etc.
+
+    The composite exposes the whole-page ``classify_segments`` hook: the LLM is
+    called once with full-page context while the per-segment pattern layers run
+    on each segment, all merged by index. The deterministic patterns in
+    :func:`~pii_guardrail.detector.classify_segment` remain the source of truth
+    and are unioned with every layer's results. When no layer is available the
+    Detector transparently falls back to pattern-only (Requirement 5.3). Any
+    unexpected error degrades to a plain pattern-only Detector, so the optional
+    layers never break the pipeline.
     """
+    layers: list[object] = []
+
+    # Whole-page contextual classifier (names/orgs/addresses). Optional.
     try:
         from pii_guardrail.litellm_backend import LiteLLMClassifier
 
-        return Detector(classifier=LiteLLMClassifier(), use_classifier=True)
+        layers.append(LiteLLMClassifier())
+    except Exception:  # noqa: BLE001 - never let one optional layer break the rest
+        pass
+
+    # Pattern-only Presidio (credit card / IP / IBAN / crypto / email / phone).
+    try:
+        from pii_guardrail.presidio_pattern_backend import PresidioPatternClassifier
+
+        layers.append(PresidioPatternClassifier())
+    except Exception:  # noqa: BLE001
+        pass
+
+    # detect-secrets (AWS/GitHub/JWT/private-key credentials).
+    try:
+        from pii_guardrail.secrets_backend import SecretsClassifier
+
+        layers.append(SecretsClassifier())
+    except Exception:  # noqa: BLE001
+        pass
+
+    if not layers:
+        return Detector()
+
+    try:
+        from pii_guardrail.composite import CompositeClassifier
+
+        return Detector(
+            classifier=CompositeClassifier(layers), use_classifier=True
+        )
     except Exception:  # noqa: BLE001 - degrade to pattern-only on any failure
         return Detector()
 

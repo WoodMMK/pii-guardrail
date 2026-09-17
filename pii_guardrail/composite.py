@@ -122,3 +122,76 @@ class CompositeClassifier:
             )
 
         return categories
+
+    def classify_segments(
+        self, segments: list
+    ) -> dict[int, set[SensitiveCategory]]:
+        """Whole-page classification across mixed layer types.
+
+        The Detector prefers this hook when present. It combines two kinds of
+        wrapped layers:
+
+        * WHOLE-PAGE layers (expose ``classify_segments``, e.g. the LLM) are
+          called ONCE with all segments so they keep full-page context, and
+          their ``{index: categories}`` mapping is merged in.
+        * PER-SEGMENT layers (expose only ``classify``, e.g. the Presidio
+          pattern and detect-secrets backends) are called once per segment and
+          their result is merged at that segment's index.
+
+        Every layer is consulted independently and defensively: an unavailable
+        or failing layer is skipped without affecting the others.
+
+        Returns:
+            ``{segment_index: set[SensitiveCategory]}`` for segments that any
+            layer flagged (empty entries omitted).
+
+        Raises:
+            ClassifierUnavailableError: Only when NO wrapped layer is available,
+                so the Detector falls back to pattern-only classification.
+        """
+        seg_list = list(segments)
+        result: dict[int, set[SensitiveCategory]] = {}
+        any_available = False
+
+        for classifier in self._classifiers:
+            try:
+                if not classifier.available:  # type: ignore[attr-defined]
+                    continue
+            except Exception:  # noqa: BLE001 - treat a broken probe as unavailable
+                continue
+            any_available = True
+
+            whole_page = getattr(classifier, "classify_segments", None)
+            if callable(whole_page):
+                # Whole-page layer: one call for all segments.
+                try:
+                    mapping = whole_page(seg_list)
+                except (ClassifierUnavailableError, Exception):  # noqa: BLE001
+                    continue
+                if isinstance(mapping, dict):
+                    for idx, cats in mapping.items():
+                        try:
+                            i = int(idx)
+                        except (TypeError, ValueError):
+                            continue
+                        if cats:
+                            result.setdefault(i, set()).update(cats)
+            else:
+                # Per-segment layer: classify each segment's text.
+                for i, seg in enumerate(seg_list):
+                    text = getattr(seg, "text", None)
+                    if not isinstance(text, str) or not text.strip():
+                        continue
+                    try:
+                        cats = classifier.classify(text)  # type: ignore[attr-defined]
+                    except (ClassifierUnavailableError, Exception):  # noqa: BLE001
+                        continue
+                    if cats:
+                        result.setdefault(i, set()).update(cats)
+
+        if not any_available:
+            raise ClassifierUnavailableError(
+                "No classifier layer is available."
+            )
+
+        return result
