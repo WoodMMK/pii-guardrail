@@ -36,8 +36,16 @@ export async function initPaddleOcr(options = {}) {
 
     // Configure ONNX Runtime Web WASM path
     if (globalThis.ort && globalThis.ort.env && globalThis.ort.env.wasm) {
-      globalThis.ort.env.wasm.wasmPaths = vendorPath;
-      globalThis.ort.env.wasm.numThreads = Math.min(4, navigator.hardwareConcurrency || 2);
+      const normalizedVendor = vendorPath.endsWith("/") ? vendorPath : `${vendorPath}/`;
+      globalThis.ort.env.wasm.wasmPaths = {
+        mjs: `${normalizedVendor}ort-wasm-simd-threaded.mjs`,
+        wasm: `${normalizedVendor}ort-wasm-simd-threaded.wasm`,
+      };
+      // Multi-threading requires SharedArrayBuffer (crossOriginIsolated)
+      const supportsThreading = typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
+      globalThis.ort.env.wasm.numThreads = supportsThreading
+        ? Math.min(4, navigator.hardwareConcurrency || 2)
+        : 1;
     }
 
     if (!globalThis.ort) {

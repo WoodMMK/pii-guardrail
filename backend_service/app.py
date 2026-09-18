@@ -125,6 +125,14 @@ def create_app(pipeline: OCRPipeline | None = None) -> FastAPI:
     active_pipeline = pipeline if pipeline is not None else build_default_pipeline()
     application = FastAPI(title="Thai Document OCR Inspector")
 
+    @application.middleware("http")
+    async def _add_cross_origin_isolation_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+        response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+        return response
+
     @application.exception_handler(UnsupportedFormatError)
     async def _handle_unsupported_format(
         _request: Request, exc: UnsupportedFormatError
