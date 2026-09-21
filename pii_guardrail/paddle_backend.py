@@ -24,13 +24,61 @@ Optional-dependency contract (design.md, "Technology Choices"):
 
 from __future__ import annotations
 
+import re
+from typing import TYPE_CHECKING
+
 from numpy.typing import NDArray
 
 from pii_guardrail.errors import OCRProcessingError
 from pii_guardrail.geometry import normalize_quad_to_box
 from pii_guardrail.models import TextSegment
 
-__all__ = ["PaddleOCRBackend"]
+__all__ = ["PaddleOCRBackend", "correct_thai_numerals"]
+
+_ARABIC_TO_THAI = {
+    "0": "๐", "1": "๑", "2": "๒", "3": "๓", "4": "๔",
+    "5": "๕", "6": "๖", "7": "๗", "8": "๘", "9": "๙",
+}
+
+
+def correct_thai_numerals(text: str) -> str:
+    """Correct misclassified Arabic digits in Thai numeral contexts.
+
+    In Thai documents (especially official texts), PaddleOCR frequently
+    misclassifies individual Thai digits as Arabic digits (e.g. 'พ.ศ. ๒๕๑8'
+    instead of 'พ.ศ. ๒๕๑๘', or '๒๕๕4' instead of '๒๕๕๔', or '๒๕๕6' instead
+    of '๒๕๕๖').
+
+    This helper detects:
+    1. 'พ.ศ.' followed by digits where at least one digit is Thai.
+    2. Number sequences where Arabic digits are mixed with Thai numerals.
+    and converts the Arabic digits in those contexts back to Thai numerals.
+    Pure Arabic numbers (e.g. 'โทร 0812345678' or '1,500 บาท') are preserved.
+    """
+    if not text:
+        return text
+
+    def _to_thai(m: re.Match) -> str:
+        s = m.group(0)
+        return "".join(_ARABIC_TO_THAI.get(c, c) for c in s)
+
+    # 1. Year following พ.ศ. where at least one digit is Thai
+    text = re.sub(
+        r"(พ\.ศ\.\s*)([๐-๙0-9]{2,4})",
+        lambda m: m.group(1) + "".join(_ARABIC_TO_THAI.get(c, c) for c in m.group(2))
+        if any(c in "๐๑๒๓๔๕๖๗๘๙" for c in m.group(2))
+        else m.group(0),
+        text,
+    )
+
+    # 2. Mixed sequences containing at least one Thai numeral and Arabic digits
+    text = re.sub(
+        r"(?<![0-9๐-๙])([๐-๙0-9]*[๐-๙][๐-๙0-9]*[0-9][๐-๙0-9]*|[๐-๙0-9]*[0-9][๐-๙0-9]*[๐-๙][๐-๙0-9]*)(?![0-9๐-๙])",
+        _to_thai,
+        text,
+    )
+
+    return text
 
 
 class PaddleOCRBackend:
@@ -90,12 +138,9 @@ class PaddleOCRBackend:
         # The real cost seen during testing was reloading the model each run;
         # keeping a warm server process (one load, many requests) is the win.
         attempts: tuple[tuple[str, dict[str, object]], ...] = (
-            # 3.x with word boxes (tight per-word redaction) + Thai recognizer.
+            # 3.x line-level (default for clean Thai OCR without word-splitting).
             ("3.x", {"use_textline_orientation": True, "lang": "th",
-                     "enable_mkldnn": False, "return_word_box": True}),
-            # 3.x without word boxes (older 3.x that rejects return_word_box).
-            ("3.x-noword", {"use_textline_orientation": True, "lang": "th",
-                            "enable_mkldnn": False}),
+                     "enable_mkldnn": False, "return_word_box": False}),
             # 2.x style: angle classifier + silenced logs.
             ("2.x", {"use_angle_cls": True, "lang": "th", "show_log": False}),
             # Minimal: just the language; lets PaddleOCR pick every default.
@@ -239,7 +284,7 @@ class PaddleOCRBackend:
             box = normalize_quad_to_box(quad, width, height)
             segments.append(
                 TextSegment(
-                    text=text,
+                    text=correct_thai_numerals(text),
                     box=box,
                     confidence=self._clamp_confidence(confidence),
                 )
@@ -366,7 +411,11 @@ class PaddleOCRBackend:
                     "" if text is None else str(text)
                 )
                 segments.append(
-                    TextSegment(text=text_str, box=box, confidence=confidence)
+                    TextSegment(
+                        text=correct_thai_numerals(text_str),
+                        box=box,
+                        confidence=confidence,
+                    )
                 )
         return segments
 
@@ -411,7 +460,13 @@ class PaddleOCRBackend:
                 # A malformed word region invalidates word-level parsing for
                 # this line; signal fallback by returning nothing.
                 return []
-            out.append(TextSegment(text=text_str, box=box, confidence=confidence))
+            out.append(
+                TextSegment(
+                    text=correct_thai_numerals(text_str),
+                    box=box,
+                    confidence=confidence,
+                )
+            )
         return out
 
     @staticmethod

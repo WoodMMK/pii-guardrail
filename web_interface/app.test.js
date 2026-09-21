@@ -292,3 +292,42 @@ describe("renderOcrDebug (raw OCR text debug view)", () => {
     expect(elements.ocrDebugBody.textContent).toContain("<img src=x onerror=alert(1)>");
   });
 });
+
+describe("renderResult OCR Local Mode", () => {
+  it("renders segment count, copy button, SVG overlay, and table", () => {
+    const elements = getElements(document);
+    const ocrResponse = {
+      status: "success",
+      image: { format: "png", base64: "aGVsbG8=" },
+      image_width: 200,
+      image_height: 100,
+      count: 2,
+      segments: [
+        { text: "สวัสดี", confidence: 0.98, box: { x: 10, y: 10, width: 80, height: 25 } },
+        { text: "World", confidence: 0.92, box: { x: 10, y: 40, width: 60, height: 25 } },
+      ],
+    };
+
+    renderResult(ocrResponse, elements);
+
+    const countEl = document.getElementById("segment-count");
+    expect(countEl).not.toBeNull();
+    expect(countEl.textContent).toContain("2 text segments recognized");
+
+    const copyBtn = document.getElementById("copy-all-btn");
+    expect(copyBtn).not.toBeNull();
+    expect(copyBtn.textContent).toBe("Copy All Text");
+
+    const svg = elements.resultContainer.querySelector("svg.ocr-overlay-svg");
+    expect(svg).not.toBeNull();
+    const rects = svg.querySelectorAll("rect.ocr-bbox");
+    expect(rects.length).toBe(2);
+
+    const tableRows = elements.resultContainer.querySelectorAll("tbody tr.ocr-result-row");
+    expect(tableRows.length).toBe(2);
+    expect(tableRows[0].textContent).toContain("สวัสดี");
+    expect(tableRows[0].textContent).toContain("98.0%");
+    expect(tableRows[1].textContent).toContain("World");
+  });
+});
+

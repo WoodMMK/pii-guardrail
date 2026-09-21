@@ -111,9 +111,10 @@ def build_default_pipeline() -> GuardrailPipeline:
     # That keeps OCR boxes in the original image space (aligned redaction) and
     # lets the cloud engine handle low-resolution input. The local PaddleOCR path
     # keeps the full preprocessor (upscale/deskew/quality gate).
+    # Default to local PaddleOCR backend.
     use_cloud_ocr = (
-        os.environ.get(_OCR_BACKEND_ENV) or "ocrspace"
-    ).strip().lower() != "paddle"
+        os.environ.get(_OCR_BACKEND_ENV) or "paddle"
+    ).strip().lower() == "ocrspace"
 
     return GuardrailPipeline(
         preprocessor=Preprocessor(passthrough=use_cloud_ocr),
@@ -123,96 +124,31 @@ def build_default_pipeline() -> GuardrailPipeline:
     )
 
 
-#: Selects the OCR backend. ``ocrspace`` (default) uses the remote OCR.space API;
-#: ``paddle`` uses the local PaddleOCR backend (slow on CPU, no network needed).
+#: Selects the OCR backend. ``paddle`` (default) uses the local PaddleOCR backend
+#: (runs locally on machine, 100% offline, no API key). ``ocrspace`` uses remote OCR.space.
 _OCR_BACKEND_ENV = "PII_GUARDRAIL_OCR_BACKEND"
 
 
 def _build_ocr_engine() -> OCREngine:
-    """Build the OCR engine, choosing the backend via ``PII_GUARDRAIL_OCR_BACKEND``.
+    """Build the OCR engine, defaulting to the local PaddleOCR backend.
 
-    Default (``ocrspace`` or unset): the remote OCR.space backend -- fast on
-    CPU-only machines and no local model to load. Set the env var to ``paddle``
-    to use the local PaddleOCR backend instead (e.g. offline / privacy).
-
-    Any failure constructing the OCR.space backend degrades to the lazily-loaded
-    default (PaddleOCR), so OCR is never left unconfigured.
+    Default: local PaddleOCR engine (lazy-loaded on first use). No API keys needed.
+    Can be overridden to ``ocrspace`` if explicitly configured.
     """
-    choice = (os.environ.get(_OCR_BACKEND_ENV) or "ocrspace").strip().lower()
-    if choice == "paddle":
-        # Explicit local backend: OCREngine() lazily loads PaddleOCR on first use.
-        return OCREngine()
-    try:
-        from pii_guardrail.ocrspace_backend import OCRSpaceBackend
+    choice = (os.environ.get(_OCR_BACKEND_ENV) or "paddle").strip().lower()
+    if choice == "ocrspace":
+        try:
+            from pii_guardrail.ocrspace_backend import OCRSpaceBackend
 
-        return OCREngine(backend=OCRSpaceBackend())
-    except Exception:  # noqa: BLE001 - fall back to the lazy local default
-        return OCREngine()
+            return OCREngine(backend=OCRSpaceBackend())
+        except Exception:  # noqa: BLE001 - fall back to local PaddleOCR
+            return OCREngine()
+    return OCREngine()
 
 
 def _build_detector_with_optional_classifiers() -> Detector:
-    """Build a Detector wired with a composite of optional advisory classifiers.
-
-    Three complementary layers are combined in a
-    :class:`~pii_guardrail.composite.CompositeClassifier`, each optional and
-    degrading gracefully:
-
-    * :class:`~pii_guardrail.litellm_backend.LiteLLMClassifier` -- a remote LLM
-      (via a LiteLLM OpenAI-compatible proxy) that reasons over the WHOLE page
-      at once to catch names / organizations / addresses, robust to OCR errors.
-    * :class:`~pii_guardrail.presidio_pattern_backend.PresidioPatternClassifier`
-      -- Presidio's regex recognizers (NO NER) for internationally-structured
-      PII: credit cards, IP addresses, IBANs, crypto wallets, email/phone/URL.
-    * :class:`~pii_guardrail.secrets_backend.SecretsClassifier` -- detect-secrets
-      (high-precision plugins only) for credentials: AWS/GitHub/GitLab keys,
-      JWTs, private keys, etc.
-
-    The composite exposes the whole-page ``classify_segments`` hook: the LLM is
-    called once with full-page context while the per-segment pattern layers run
-    on each segment, all merged by index. The deterministic patterns in
-    :func:`~pii_guardrail.detector.classify_segment` remain the source of truth
-    and are unioned with every layer's results. When no layer is available the
-    Detector transparently falls back to pattern-only (Requirement 5.3). Any
-    unexpected error degrades to a plain pattern-only Detector, so the optional
-    layers never break the pipeline.
-    """
-    layers: list[object] = []
-
-    # Whole-page contextual classifier (names/orgs/addresses). Optional.
-    try:
-        from pii_guardrail.litellm_backend import LiteLLMClassifier
-
-        layers.append(LiteLLMClassifier())
-    except Exception:  # noqa: BLE001 - never let one optional layer break the rest
-        pass
-
-    # Pattern-only Presidio (credit card / IP / IBAN / crypto / email / phone).
-    try:
-        from pii_guardrail.presidio_pattern_backend import PresidioPatternClassifier
-
-        layers.append(PresidioPatternClassifier())
-    except Exception:  # noqa: BLE001
-        pass
-
-    # detect-secrets (AWS/GitHub/JWT/private-key credentials).
-    try:
-        from pii_guardrail.secrets_backend import SecretsClassifier
-
-        layers.append(SecretsClassifier())
-    except Exception:  # noqa: BLE001
-        pass
-
-    if not layers:
-        return Detector()
-
-    try:
-        from pii_guardrail.composite import CompositeClassifier
-
-        return Detector(
-            classifier=CompositeClassifier(layers), use_classifier=True
-        )
-    except Exception:  # noqa: BLE001 - degrade to pattern-only on any failure
-        return Detector()
+    """Build a basic pattern-only Detector without remote LLM dependencies."""
+    return Detector()
 
 
 def _encode_png_base64(image: "NDArray") -> str:
@@ -429,6 +365,48 @@ def create_app(pipeline: GuardrailPipeline | None = None) -> FastAPI:
         return {
             "status": "ok",
             "ocr_backend_available": _resolve_ocr_backend_available(active_pipeline),
+        }
+
+    @application.post("/api/ocr")
+    async def ocr_endpoint(
+        image: UploadFile = File(...),
+    ) -> dict:
+        """Extract recognized text segments and bounding boxes via local PaddleOCR."""
+        data = await image.read()
+        image_array = validate_and_load(data)
+
+        engine = getattr(active_pipeline, "_ocr_engine", None)
+        if engine is None:
+            engine = _build_ocr_engine()
+
+        segments = engine.extract(image_array)
+        height, width = image_array.shape[:2]
+
+        serialized_segments = [
+            {
+                "text": s.text,
+                "confidence": round(float(s.confidence), 4),
+                "box": {
+                    "x": int(s.box.x),
+                    "y": int(s.box.y),
+                    "width": int(s.box.width),
+                    "height": int(s.box.height),
+                },
+            }
+            for s in segments
+        ]
+
+        return {
+            "status": "success",
+            "image": {
+                "format": "png",
+                "base64": _encode_png_base64(image_array),
+            },
+            "image_width": int(width),
+            "image_height": int(height),
+            "count": len(serialized_segments),
+            "segments": serialized_segments,
+            "ocr_segments": serialized_segments,
         }
 
     @application.post("/api/redact")

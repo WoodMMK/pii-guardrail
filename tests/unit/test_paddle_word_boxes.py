@@ -165,3 +165,21 @@ class TestMultipleLines:
         segs = _parse(result)
         texts = [s.text for s in segs]
         assert texts == ["p", "q", "plain line"]
+
+
+class TestThaiNumeralCorrection:
+    def test_corrects_mixed_thai_year(self) -> None:
+        from pii_guardrail.paddle_backend import correct_thai_numerals
+
+        assert correct_thai_numerals("พ.ศ. ๒๕๑8") == "พ.ศ. ๒๕๑๘"
+        assert correct_thai_numerals("พ.ศ. ๒๕๕6") == "พ.ศ. ๒๕๕๖"
+        assert correct_thai_numerals("พ.ศ. ๒๕๕4") == "พ.ศ. ๒๕๕๔"
+        assert correct_thai_numerals("มาตรา ๔5") == "มาตรา ๔๕"
+
+    def test_preserves_pure_arabic_numbers(self) -> None:
+        from pii_guardrail.paddle_backend import correct_thai_numerals
+
+        assert correct_thai_numerals("โทร 0812345678") == "โทร 0812345678"
+        assert correct_thai_numerals("ราคา 1,500 บาท") == "ราคา 1,500 บาท"
+        assert correct_thai_numerals("พ.ศ. 2567") == "พ.ศ. 2567"
+

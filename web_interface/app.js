@@ -8,9 +8,8 @@
 // Functions are kept small, named, and exported so the DOM behavior can be
 // tested later (task 16.3) and extended by task 16.2.
 
-// Default backend endpoint. Same-origin by default; override by setting
-// window.PII_GUARDRAIL_API_URL before this module runs, if needed.
-export const DEFAULT_API_URL = "/api/redact";
+// Default backend endpoint: local OCR endpoint
+export const DEFAULT_API_URL = "/api/ocr";
 
 /**
  * Resolve the backend endpoint URL. Prefers a runtime-configurable global,
@@ -392,12 +391,14 @@ export function renderOcrDebug(segments, elements) {
 }
 
 /**
- * Render the successful redaction response into #result-container (Req 9.2-9.4).
+ * Render the OCR response into #result-container.
  *
- * Builds the DOM safely with createElement/textContent (no innerHTML with
- * response data) so untrusted content is never interpreted as markup.
+ * Displays:
+ * 1. Summary bar with total recognized segments count and "Copy All Text" button.
+ * 2. Visual preview: uploaded image with interactive SVG bounding boxes overlay.
+ * 3. Structured text table with segment text, confidence %, coordinates, and per-row copy.
  *
- * @param {object} response - parsed success payload from the backend.
+ * @param {object} response - parsed payload from the backend.
  * @param {object} elements - resolved elements from getElements().
  */
 export function renderResult(response, elements) {
@@ -406,82 +407,267 @@ export function renderResult(response, elements) {
   container.replaceChildren();
 
   const data = response || {};
-  const detection = data.detection_result || {};
+  const segments = Array.isArray(data.segments)
+    ? data.segments
+    : Array.isArray(data.ocr_segments)
+    ? data.ocr_segments
+    : [];
+  const imageObj = data.image || data.redacted_image;
+  const dataUrl = buildImageDataUrl(imageObj);
 
-  // --- OCR debug view: raw recognized text (independent of the result box) ---
-  renderOcrDebug(data.ocr_segments, elements);
+  // Sync with OCR debug view if present
+  renderOcrDebug(segments, elements);
 
-  // --- Redacted image (Requirement 9.2) ---
-  const dataUrl = buildImageDataUrl(data.redacted_image);
+  // --- Header / Toolbar ---
+  const toolbar = document.createElement("div");
+  toolbar.className = "ocr-toolbar";
+
+  const countEl = document.createElement("div");
+  countEl.id = "segment-count";
+  countEl.className = "segment-count";
+  const segmentLabel = segments.length === 1 ? "text segment" : "text segments";
+  countEl.textContent = `${segments.length} ${segmentLabel} recognized`;
+  toolbar.appendChild(countEl);
+
+  if (segments.length > 0) {
+    const copyAllBtn = document.createElement("button");
+    copyAllBtn.id = "copy-all-btn";
+    copyAllBtn.className = "copy-btn copy-all-btn";
+    copyAllBtn.type = "button";
+    copyAllBtn.textContent = "Copy All Text";
+    copyAllBtn.addEventListener("click", () => {
+      const fullText = segments.map((s) => (s && s.text ? s.text : "")).join("\n");
+      navigator.clipboard?.writeText(fullText).then(() => {
+        const originalText = copyAllBtn.textContent;
+        copyAllBtn.textContent = "Copied!";
+        setTimeout(() => {
+          copyAllBtn.textContent = originalText;
+        }, 2000);
+      });
+    });
+    toolbar.appendChild(copyAllBtn);
+  }
+  // --- Split Layout (Image on Left, Scrollable OCR Results on Right) ---
+  const splitLayout = document.createElement("div");
+  splitLayout.className = "ocr-split-layout";
+
+  const leftPane = document.createElement("div");
+  leftPane.className = "ocr-pane-left";
+
+  const rightPane = document.createElement("div");
+  rightPane.className = "ocr-pane-right";
+
+  // --- Visual Preview with SVG Bounding Boxes (Left Pane) ---
   if (dataUrl) {
     const figure = document.createElement("figure");
     figure.className = "result-figure";
 
+    const viewerWrapper = document.createElement("div");
+    viewerWrapper.className = "ocr-viewer-wrapper";
+
     const img = document.createElement("img");
-    img.id = "redacted-image";
-    img.className = "redacted-image";
-    img.alt = "Redacted image";
+    img.id = data.redacted_image ? "redacted-image" : "ocr-image";
+    img.className = "ocr-preview-image";
+    img.alt = "OCR Input Preview";
     img.src = dataUrl;
-    figure.appendChild(img);
-    container.appendChild(figure);
+    viewerWrapper.appendChild(img);
 
-    // --- Download control (Requirement 9.4) ---
-    const format =
-      data.redacted_image && typeof data.redacted_image.format === "string" && data.redacted_image.format
-        ? data.redacted_image.format
-        : "png";
-    const download = document.createElement("a");
-    download.id = "download-link";
-    download.className = "download-link";
-    download.href = dataUrl;
-    download.download = `redacted.${format}`;
-    download.textContent = "Download redacted image";
-    container.appendChild(download);
-  }
+    const imgWidth = data.image_width || 0;
+    const imgHeight = data.image_height || 0;
 
-  // --- Region count + category summary (Requirement 9.3) ---
-  const count = Number.isFinite(detection.count) ? detection.count : 0;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "ocr-overlay-svg");
+    if (imgWidth && imgHeight) {
+      svg.setAttribute("viewBox", `0 0 ${imgWidth} ${imgHeight}`);
+    }
 
-  const countEl = document.createElement("p");
-  countEl.id = "region-count";
-  countEl.className = "region-count";
-  const label = count === 1 ? "sensitive region" : "sensitive regions";
-  countEl.textContent = `${count} ${label} detected`;
-  container.appendChild(countEl);
+    segments.forEach((seg, idx) => {
+      const box = seg.box;
+      if (!box) return;
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("class", "ocr-bbox");
+      rect.setAttribute("x", String(box.x));
+      rect.setAttribute("y", String(box.y));
+      rect.setAttribute("width", String(box.width));
+      rect.setAttribute("height", String(box.height));
+      rect.setAttribute("data-index", String(idx));
 
-  const summary = summarizeCategories(detection.regions);
-  const summaryEl = document.createElement("ul");
-  summaryEl.id = "category-summary";
-  summaryEl.className = "category-summary";
-  if (summary.length === 0) {
-    const item = document.createElement("li");
-    item.className = "category-item category-empty";
-    item.textContent = "No sensitive categories detected";
-    summaryEl.appendChild(item);
-  } else {
-    for (const { category, count: catCount } of summary) {
-      const item = document.createElement("li");
-      item.className = "category-item";
-      item.textContent = `${category} (${catCount})`;
-      summaryEl.appendChild(item);
+      const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+      const confStr = Number.isFinite(seg.confidence)
+        ? ` (${(seg.confidence * 100).toFixed(1)}%)`
+        : "";
+      title.textContent = `[#${idx + 1}] ${seg.text || ""}${confStr}`;
+      rect.appendChild(title);
+
+      rect.addEventListener("mouseenter", () => {
+        rect.classList.add("highlighted");
+        const matchingRow = container.querySelector(`tr[data-index="${idx}"]`);
+        if (matchingRow) {
+          matchingRow.classList.add("highlighted");
+          matchingRow.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      });
+      rect.addEventListener("mouseleave", () => {
+        rect.classList.remove("highlighted");
+        const matchingRow = container.querySelector(`tr[data-index="${idx}"]`);
+        if (matchingRow) matchingRow.classList.remove("highlighted");
+      });
+
+      svg.appendChild(rect);
+    });
+
+    viewerWrapper.appendChild(svg);
+    figure.appendChild(viewerWrapper);
+    leftPane.appendChild(figure);
+
+    // Support legacy download control if requested
+    if (data.redacted_image) {
+      const format =
+        typeof data.redacted_image.format === "string" && data.redacted_image.format
+          ? data.redacted_image.format
+          : "png";
+      const download = document.createElement("a");
+      download.id = "download-link";
+      download.className = "download-link";
+      download.href = dataUrl;
+      download.download = `redacted.${format}`;
+      download.textContent = "Download image";
+      leftPane.appendChild(download);
     }
   }
-  container.appendChild(summaryEl);
 
-  // --- Warnings shown alongside successful results (design.md, Req 9.6) ---
-  const warnings = Array.isArray(data.warnings) ? data.warnings : [];
-  const combinedWarnings = warnings.slice();
-  if (data.quality_sufficient === false) {
-    combinedWarnings.push(
-      "Image quality was insufficient for reliable detection; results may be incomplete."
-    );
+  // --- Right Pane: Toolbar + Scrollable Extracted Text Table ---
+  rightPane.appendChild(toolbar);
+
+  if (segments.length > 0) {
+    const tableContainer = document.createElement("div");
+    tableContainer.className = "ocr-table-container";
+
+    const table = document.createElement("table");
+    table.className = "ocr-table ocr-main-table";
+
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    for (const h of ["#", "Recognized Text", "Confidence", "Box (x, y, w, h)", "Action"]) {
+      const th = document.createElement("th");
+      th.textContent = h;
+      headRow.appendChild(th);
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    segments.forEach((segment, idx) => {
+      const tr = document.createElement("tr");
+      tr.setAttribute("data-index", String(idx));
+      tr.className = "ocr-result-row";
+
+      tr.addEventListener("mouseenter", () => {
+        tr.classList.add("highlighted");
+        const matchingRect = container.querySelector(`rect[data-index="${idx}"]`);
+        if (matchingRect) matchingRect.classList.add("highlighted");
+      });
+      tr.addEventListener("mouseleave", () => {
+        tr.classList.remove("highlighted");
+        const matchingRect = container.querySelector(`rect[data-index="${idx}"]`);
+        if (matchingRect) matchingRect.classList.remove("highlighted");
+      });
+
+      const idxTd = document.createElement("td");
+      idxTd.className = "ocr-index";
+      idxTd.textContent = String(idx + 1);
+      tr.appendChild(idxTd);
+
+      const textTd = document.createElement("td");
+      textTd.className = "ocr-text";
+      textTd.textContent = segment.text || "";
+      tr.appendChild(textTd);
+
+      const confTd = document.createElement("td");
+      confTd.className = "ocr-confidence";
+      const conf = Number.isFinite(segment.confidence) ? segment.confidence : null;
+      confTd.textContent = conf === null ? "-" : `${(conf * 100).toFixed(1)}%`;
+      tr.appendChild(confTd);
+
+      const boxTd = document.createElement("td");
+      boxTd.className = "ocr-box";
+      const b = segment.box;
+      boxTd.textContent = b ? `${b.x}, ${b.y}, ${b.width}, ${b.height}` : "-";
+      tr.appendChild(boxTd);
+
+      const actionTd = document.createElement("td");
+      actionTd.className = "ocr-action";
+      const copyRowBtn = document.createElement("button");
+      copyRowBtn.className = "copy-btn copy-row-btn";
+      copyRowBtn.type = "button";
+      copyRowBtn.textContent = "Copy";
+      copyRowBtn.addEventListener("click", () => {
+        navigator.clipboard?.writeText(segment.text || "").then(() => {
+          copyRowBtn.textContent = "Copied!";
+          setTimeout(() => {
+            copyRowBtn.textContent = "Copy";
+          }, 1500);
+        });
+      });
+      actionTd.appendChild(copyRowBtn);
+      tr.appendChild(actionTd);
+
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    tableContainer.appendChild(table);
+    rightPane.appendChild(tableContainer);
   }
-  if (combinedWarnings.length > 0) {
+
+  // If there's an image, render both in split layout; otherwise render right pane directly
+  if (dataUrl) {
+    splitLayout.appendChild(leftPane);
+    splitLayout.appendChild(rightPane);
+    container.appendChild(splitLayout);
+  } else {
+    container.appendChild(rightPane);
+  }
+
+  // --- Legacy Compatibility for Detection Result tests ---
+  if (data.detection_result) {
+    const detection = data.detection_result;
+    const count = Number.isFinite(detection.count) ? detection.count : 0;
+    const legacyCountEl = document.createElement("p");
+    legacyCountEl.id = "region-count";
+    legacyCountEl.className = "region-count";
+    const label = count === 1 ? "sensitive region" : "sensitive regions";
+    legacyCountEl.textContent = `${count} ${label} detected`;
+    container.appendChild(legacyCountEl);
+
+    const summary = summarizeCategories(detection.regions);
+    const summaryEl = document.createElement("ul");
+    summaryEl.id = "category-summary";
+    summaryEl.className = "category-summary";
+    if (summary.length === 0) {
+      const item = document.createElement("li");
+      item.className = "category-item category-empty";
+      item.textContent = "No sensitive categories detected";
+      summaryEl.appendChild(item);
+    } else {
+      for (const { category, count: catCount } of summary) {
+        const item = document.createElement("li");
+        item.className = "category-item";
+        item.textContent = `${category} (${catCount})`;
+        summaryEl.appendChild(item);
+      }
+    }
+    container.appendChild(summaryEl);
+  }
+
+  // --- Warnings if any ---
+  const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+  if (warnings.length > 0) {
     const warnEl = document.createElement("div");
     warnEl.id = "warnings";
     warnEl.className = "warnings";
     warnEl.setAttribute("role", "status");
-    for (const warning of combinedWarnings) {
+    for (const warning of warnings) {
       if (typeof warning !== "string" || !warning) continue;
       const p = document.createElement("p");
       p.className = "warning";

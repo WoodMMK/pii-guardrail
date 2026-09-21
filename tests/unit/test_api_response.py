@@ -135,3 +135,32 @@ def test_redact_response_contains_detection_result_and_redacted_image() -> None:
     # -- quality_sufficient present and True here ---------------------------
     assert "quality_sufficient" in body
     assert body["quality_sufficient"] is True
+
+
+def test_ocr_endpoint_returns_segments_and_image() -> None:
+    client = TestClient(create_app(pipeline=_build_injected_pipeline()))
+
+    response = client.post(
+        "/api/ocr",
+        files={"image": ("test.png", _png_bytes(), "image/png")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["status"] == "success"
+    assert body["image_width"] == 64
+    assert body["image_height"] == 64
+    assert body["count"] == 1
+    assert len(body["segments"]) == 1
+
+    segment = body["segments"][0]
+    assert segment["text"] == "user@example.com"
+    assert segment["confidence"] == 0.95
+    assert segment["box"] == {"x": 4, "y": 8, "width": 40, "height": 12}
+
+    assert "image" in body
+    assert body["image"]["format"] == "png"
+    assert isinstance(body["image"]["base64"], str)
+    assert len(body["image"]["base64"]) > 0
+
