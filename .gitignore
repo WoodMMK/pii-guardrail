@@ -23,6 +23,9 @@ htmlcov/
 node_modules/
 web_interface/node_modules/
 
+# --- Kiro specs ---
+.kiro/
+
 # --- Secrets / environment (NEVER commit real keys) ---
 .env
 .env.*
@@ -36,6 +39,7 @@ _*.py
 _*.png
 _*.json
 *.tmp
+result.json
 check_server.txt
 boxes_diag.txt
 
@@ -56,4 +60,5 @@ redacted_result.png
 
 # --- Experiment: screenpipe ONNX model + scratch (not committed) ---
 _screenpipe/
-*.onnx
+web_interface/models/.cache/
+

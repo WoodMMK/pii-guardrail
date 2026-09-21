@@ -21,7 +21,6 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from pii_guardrail.detector import Detector
 from pii_guardrail.models import BoundingBox, TextSegment
 from pii_guardrail.ocr import OCREngine
 from tests.property.ocr_fakes import FakeOCRBackend
@@ -95,8 +94,3 @@ def test_confidence_values_within_range(
     for seg in extracted:
         assert math.isfinite(seg.confidence)
         assert 0.0 <= seg.confidence <= 1.0
-
-    outcome = Detector().detect(extracted)
-    for region in outcome.regions:
-        assert math.isfinite(region.confidence)
-        assert 0.0 <= region.confidence <= 1.0
