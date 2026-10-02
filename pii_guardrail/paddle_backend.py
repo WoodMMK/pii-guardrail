@@ -138,7 +138,17 @@ class PaddleOCRBackend:
         # The real cost seen during testing was reloading the model each run;
         # keeping a warm server process (one load, many requests) is the win.
         attempts: tuple[tuple[str, dict[str, object]], ...] = (
-            # 3.x line-level (default for clean Thai OCR without word-splitting).
+            # 3.x fast line-level (disable unwarping & orientation classifier, keep default detection limit 960, set CPU threads)
+            ("3.x-fast", {
+                "lang": "th",
+                "use_textline_orientation": False,
+                "use_doc_unwarping": False,
+                "use_doc_orientation_classify": False,
+                "cpu_threads": 4,
+                "enable_mkldnn": False,
+                "return_word_box": False,
+            }),
+            # 3.x line-level fallback
             ("3.x", {"use_textline_orientation": True, "lang": "th",
                      "enable_mkldnn": False, "return_word_box": False}),
             # 2.x style: angle classifier + silenced logs.

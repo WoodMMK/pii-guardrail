@@ -1,7 +1,8 @@
 # Thai Document OCR & Bounding Box Inspector
 
-ระบบ OCR ภาษาไทย-อังกฤษความแม่นยำสูง ทำงานแบบ **100% In-Browser OCR (WebAssembly / Zero External API)** ผ่าน ONNX Runtime Web และ PaddleOCR พร้อมระบบจัดกลุ่มข้อความตามโครงสร้างเอกสารจริง:
+ระบบ OCR ภาษาไทย-อังกฤษความแม่นยำสูง ทำงานแบบ **100% In-Browser OCR (WebAssembly / Zero External API)** ผ่าน ONNX Runtime Web และ PaddleOCR (พร้อมทางเลือกประมวลผลผ่าน Backend Service ในเครื่อง) มาพร้อมระบบจัดกลุ่มข้อความตามโครงสร้างเอกสารจริง:
 - **ตรวจจับแนวขอบคอลัมน์และตารางอัตโนมัติ (Column Margins & Gap Analysis)**
+- **แก้ไขเลขอารบิกที่สับสนในบริบทเลขไทยอัตโนมัติ (Thai Numeral Auto-Correction)** แก้ปัญหาตัวเลขไทย (เช่น `พ.ศ. ๒๕๕๖`, `พ.ศ. ๒๕๑๘`) ถูกโมเดล OCR สับสนและตัดเป็นเลขอารบิกเดี่ยว ๆ
 - **สับคำภาษาไทยรายคำด้วย Intl.Segmenter** พร้อมคำนวณสัดส่วน Bounding Box รายคำอย่างแม่นยำ (ข้ามสระบน/ล่างและวรรณยุกต์)
 - **สร้างผลลัพธ์โครงสร้างลำดับชั้น (Sentences + Word-Level Bounding Boxes)** เพื่อให้ทีมที่นำไปทำ Pattern Filter หรือ Redaction สามารถเลือกปิดทับเฉพาะคำได้โดยไม่เสียบริบทของเอกสาร
 
@@ -9,9 +10,10 @@
 [ เอกสาร / รูปภาพ ]
         │
         ▼
-[ In-Browser PaddleOCR (ONNX Runtime Web) ]
+[ Local PaddleOCR (In-Browser WASM หรือ Backend API) ]
    ├── ตรวจจับขอบเขตข้อความ & แยกคอลัมน์อัตโนมัติ (Column Margins & Gap Analysis)
    ├── สับคำภาษาไทยรายคำ (Intl.Segmenter + Proportional Glyph Boxes)
+   ├── แก้ไขตัวเลขไทยในบริบททางการอัตโนมัติ (Thai Numeral Auto-Correction)
    └── สร้างผลลัพธ์โครงสร้างลำดับชั้น (Sentences + Word-Level Bounding Boxes)
         │
         ▼
@@ -26,9 +28,11 @@
 2. [การติดตั้งและ Setup](#setup)
 3. [วิธีรันและทดลองใช้งานหน้าเว็บ (Web Interface)](#การรันและทดลองใช้งานหน้าเว็บ-web-interface)
 4. [โครงสร้างผลลัพธ์ OCR (Data Structure)](#โครงสร้างผลลัพธ์-ocr-data-structure)
-5. [คำแนะนำสำหรับทีมที่นำไปทำ Pattern Filter ต่อ (Word-Level Pinpoint Redaction)](#คำแนะนำสำหรับทีมที่นำไปทำ-pattern-filter-ต่อ-word-level-pinpoint-redaction)
-6. [การทดสอบ (Tests)](#tests)
-7. [ความปลอดภัยและ Privacy](#ความปลอดภัยและ-privacy)
+5. [ระบบแก้ไขเลขอารบิกในบริบทเลขไทย (Thai Numeral Auto-Correction)](#ระบบแก้ไขเลขอารบิกในบริบทเลขไทย-thai-numeral-auto-correction)
+6. [Backend API Endpoints (สำหรับการเรียกใช้งานผ่าน HTTP)](#backend-api-endpoints)
+7. [คำแนะนำสำหรับทีมที่นำไปทำ Pattern Filter ต่อ (Word-Level Pinpoint Redaction)](#คำแนะนำสำหรับทีมที่นำไปทำ-pattern-filter-ต่อ-word-level-pinpoint-redaction)
+8. [การทดสอบ (Tests)](#tests)
+9. [ความปลอดภัยและ Privacy](#ความปลอดภัยและ-privacy)
 
 ---
 
@@ -36,7 +40,7 @@
 
 - **Python 3.10+** (สำหรับรัน Web Server เสิร์ฟ Static Assets และ API)
 - **Modern Web Browser** (Chrome, Edge, Firefox, Safari) รองรับ WebAssembly สำหรับ In-Browser OCR
-- API keys: **ไม่จำเป็น** โมเดล PaddleOCR และเอนจินทั้งหมดรันในเครื่องและในเบราว์เซอร์ 100%
+- API keys: **ไม่จำเป็น** โมเดล PaddleOCR และเอนจินทั้งหมดรันในเครื่องและในเบราว์เซอร์ 100% (ไม่มีการพึ่งพา Cloud OCR หรือ LLM API ภายนอก)
 
 ---
 
@@ -52,6 +56,11 @@ python -m venv .venv
 
 # 3. ติดตั้ง Dependencies (dev รวม ocr, web, test)
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+
+# 4. ติดตั้ง Node Dependencies (สำหรับ Frontend Unit Testing)
+cd web_interface
+npm install
+cd ..
 ```
 
 > **หมายเหตุ:** โมเดล PaddleOCR และ WebAssembly Runtime สำหรับรันบนหน้าเว็บถูกบรรจุไว้ในโฟลเดอร์ `web_interface/` แล้ว สามารถรัน In-Browser OCR ในเครื่องได้ทันที 100% โดยไม่ต้องโหลดโมเดลภายนอกและไม่ต้องใช้ API Key ใด ๆ
@@ -78,7 +87,7 @@ python -m venv .venv
    - **Privacy 100%**: รูปภาพไม่ถูกส่งไปยังเซิร์ฟเวอร์ภายนอกแม้แต่ไบต์เดียว
 3. **ตรวจสอบผลลัพธ์ผ่าน Side-by-Side Workspace Layout**:
    - **ฝั่งซ้าย (Document Preview)**: แสดงภาพเอกสารพร้อมเส้นกรอบ Bounding Box แบบลอยตามสายตา (**Sticky Preview**)
-   - **ฝั่งขวา (OCR Inspection Table)**: แสดงตารางผลลัพธ์ข้อความและค่าพิกัด
+   - **ฝั่งขวา (OCR Inspection Table)**: แสดงตารางผลลัพธ์ข้อความ พิกัดกล่อง และปุ่ม Copy ข้อความรายแถว
    - **Hover to Highlight & Auto-Scroll**: เมื่อเลื่อนเมาส์ชี้แถวใดในตาราง ภาพฝั่งซ้ายจะเลื่อน (**Smooth Scroll**) จัดตำแหน่งให้กล่องข้อความสีแดงเด่นชัดอยู่ตรงกลางสายตาทันที แม้เอกสารจะยาวหลายหน้า
 4. **สลับมุมมองได้ตามต้องการ**:
    - `📄 Sentences View`: แสดงประโยค/บรรทัดเต็ม สะอาดตา อ่านง่าย
@@ -144,6 +153,59 @@ python -m venv .venv
 
 ---
 
+## ระบบแก้ไขเลขอารบิกในบริบทเลขไทย (Thai Numeral Auto-Correction)
+
+ในเอกสารราชการหรือหนังสือสัญญาภาษาไทย โมเดล OCR มักมีข้อจำกัดในการแยกแยะตัวเลขไทยบางตัว (เช่น `๖`, `๔`, `๘`) และมักจำแนกสับสนเป็นเลขอารบิก (เช่น `6`, `4`, `8`) ส่งผลให้เกิดปัญหา:
+1. การอ่านค่าผิดพลาด เช่น `"พ.ศ. ๒๕๕"` และ `"6"`
+2. เอนจินตัดคำบางระบบแยกคำเมื่อมีการเปลี่ยนชุดรหัสอักษร (Unicode Script Transition) จากภาษาไทยเป็น ASCII
+
+**วิธีแก้ปัญหาในโปรเจกต์:**
+- ทำงานอัตโนมัติทั้งใน **In-Browser JS Engine (`paddle_ocr.js`)** และ **Python Backend (`pii_guardrail.paddle_backend`)**
+- ตรวจจับบริบทปี พ.ศ. (เช่น `พ.ศ. ๒๕๕6` $\rightarrow$ `พ.ศ. ๒๕๕๖`)
+- แปลงชุดตัวเลขที่ผสมระหว่างเลขไทยกับเลขอารบิกกลับเป็นเลขไทยให้สอดคล้องกันทั้งกลุ่ม (เช่น `๒๕๑8` $\rightarrow$ `๒๕๑๘`)
+- **ไม่กระทบตัวเลขอารบิกปกติ**: ตัวเลขอารบิกล้วน เช่น เบอร์โทรศัพท์ (`0812345678`), จำนวนเงิน (`1,500 บาท`), หรือเลขอารบิกทั่วไป จะยังคงรูปเลขอารบิกไว้เหมือนเดิม 100%
+
+---
+
+## Backend API Endpoints
+
+นอกจากการรัน In-Browser OCR ผ่านหน้าเว็บแล้ว ตัวระบบยังมี REST API สำหรับการดึงผลการ OCR ผ่าน Backend (FastAPI):
+
+### 1. `GET /api/health`
+ตรวจสอบสถานะความพร้อมของเซิร์ฟเวอร์และ PaddleOCR Engine:
+```json
+{
+  "status": "ok",
+  "ocr_backend_available": true
+}
+```
+
+### 2. `POST /api/ocr` (หรือ `/api/extract`)
+ส่งรูปภาพเข้ามาเพื่อทำ OCR และรับค่า Bounding Boxes:
+- **Content-Type**: `multipart/form-data`
+- **Body**: `image` (ไฟล์ PNG หรือ JPEG)
+- **Response**:
+```json
+{
+  "status": "success",
+  "quality_sufficient": true,
+  "warnings": [],
+  "image_width": 1200,
+  "image_height": 800,
+  "count": 15,
+  "segments": [
+    {
+      "text": "ข้อความที่ตรวจพบ",
+      "box": { "x": 50, "y": 120, "width": 450, "height": 32 },
+      "confidence": 0.95
+    }
+  ],
+  "ocr_segments": [ ... ]
+}
+```
+
+---
+
 ## คำแนะนำสำหรับทีมที่นำไปทำ Pattern Filter ต่อ (Word-Level Pinpoint Redaction)
 
 ### ปัญหาของการ Redact ระดับบรรทัด (The Over-Redaction Problem)
@@ -190,19 +252,31 @@ const boxesToRedact = getRedactionBoxes(sentence, detectedPII);
 
 ## Tests
 
-ทดสอบความถูกต้องของตรรกะการรวมประโยค, การแยกคอลัมน์, และการสับคำภาษาไทย:
+### 1. ทดสอบ Python Backend Tests
+ทดสอบความถูกต้องของ OCR Engine, การจัดการ Bounding Box, และการแปลงตัวเลขไทย:
 
 ```powershell
-# รัน Python Unit Tests ทั้งหมด
-.\.venv\Scripts\python.exe -m pytest tests/unit -q
+# รัน Python Test Suite ทั้งหมด (Unit, Integration, Property-based)
+.\.venv\Scripts\python.exe -m pytest
 
-# รันการทดสอบ Property-based tests
-.\.venv\Scripts\python.exe -m pytest tests/property -q
+# รันเฉพาะการทดสอบ Thai Numeral Correction และ Word Boxes
+.\.venv\Scripts\python.exe -m pytest tests/unit/test_paddle_word_boxes.py -v
+```
+
+### 2. ทดสอบ Frontend (Web Interface)
+ทดสอบการทำงานของ Web UI ด้วย Vitest:
+
+```powershell
+cd web_interface
+npm test
+cd ..
 ```
 
 ---
 
 ## ความปลอดภัยและ Privacy
 
-- In-Browser OCR ประมวลผลบนเครื่องของผู้ใช้ทั้งหมด ข้อมูลภาพไม่รั่วไหลออกสู่อินเทอร์เน็ต
+- **100% Local & In-Browser**: In-Browser OCR ประมวลผลบนเครื่องของผู้ใช้ทั้งหมด ข้อมูลภาพไม่รั่วไหลออกสู่อินเทอร์เน็ต
+- **Zero External API**: ไม่มีการพึ่งพาบริการภายนอก ไม่ต้องใส่ API Key (OCR.space, LiteLLM หรือ Presidio ถูกนำออกทั้งหมดเพื่อโฟกัสที่ OCR Engine POC ที่ปลอดภัยและรันในเครื่องได้จริง)
 - ชุดทดสอบและโมเดล ONNX พร้อมรันแบบ Offline ได้ทันทีหลังจาก Clone โปรเจกต์
+

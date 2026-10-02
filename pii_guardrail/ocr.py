@@ -172,6 +172,9 @@ class OCREngine:
 
         return segments
 
+    #: Alias for extract(image)
+    extract_text = extract
+
     # -- internals ----------------------------------------------------------
 
     def _resolve_backend(self) -> OCRBackend:

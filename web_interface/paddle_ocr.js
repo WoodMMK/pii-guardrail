@@ -45,6 +45,21 @@ export function correctThaiNumerals(text) {
   return text;
 }
 
+/**
+ * Correct systemic OCR misrecognitions and symbol distortions in Thai documents.
+ */
+export function correctThaiOcrText(text) {
+  if (!text || typeof text !== "string") return text;
+  text = correctThaiNumerals(text);
+
+  // Fix generic Buddhist Year glitches where 7 is misread as bracket or pipe e.g. 256] -> 2567
+  text = text.replace(/(25\d{2})[\]|Il!]/g, "$1");
+  text = text.replace(/(256)[\]|Il!]/g, "$17");
+  text = text.replace(/([0-3]?\d[\/.:][0-1]?\d[\/.:])(256)[\]|Il!]/g, "$1$27");
+
+  return text;
+}
+
 let detSession = null;
 let recSession = null;
 let characterDict = null;
@@ -102,42 +117,233 @@ export async function initPaddleOcr(options = {}) {
     characterDict = ["blank", ...rawLines, " "];
 
     // 2. Create Detection & Recognition inference sessions
-    const sessionOptions = {
-      executionProviders: ["wasm"],
-      graphOptimizationLevel: "all",
-    };
-
-    [detSession, recSession] = await Promise.all([
-      globalThis.ort.InferenceSession.create(
-        `${modelsPath}detection/v3/det.onnx`,
-        sessionOptions
-      ),
-      globalThis.ort.InferenceSession.create(
-        `${modelsPath}languages/thai/rec.onnx`,
-        sessionOptions
-      ),
-    ]);
+    // Try WebGPU first for GPU acceleration, fallback to WASM
+    let ep = "wasm";
+    try {
+      const gpuOptions = {
+        executionProviders: ["webgpu"],
+        graphOptimizationLevel: "all",
+      };
+      [detSession, recSession] = await Promise.all([
+        globalThis.ort.InferenceSession.create(
+          `${modelsPath}detection/v3/det.onnx`,
+          gpuOptions
+        ),
+        globalThis.ort.InferenceSession.create(
+          `${modelsPath}languages/thai/rec.onnx`,
+          gpuOptions
+        ),
+      ]);
+      ep = "webgpu";
+      console.log("PaddleOCR initialized with WebGPU acceleration.");
+    } catch {
+      const wasmOptions = {
+        executionProviders: ["wasm"],
+        graphOptimizationLevel: "all",
+      };
+      [detSession, recSession] = await Promise.all([
+        globalThis.ort.InferenceSession.create(
+          `${modelsPath}detection/v3/det.onnx`,
+          wasmOptions
+        ),
+        globalThis.ort.InferenceSession.create(
+          `${modelsPath}languages/thai/rec.onnx`,
+          wasmOptions
+        ),
+      ]);
+      ep = "wasm";
+    }
 
     isInitializing = false;
-    return { detSession, recSession };
+    return { detSession, recSession, executionProvider: ep };
   })();
 
   return initPromise;
 }
 
+let sharedWorker = null;
+let nextTaskId = 1;
+const pendingTasks = new Map();
+
 /**
- * Run end-to-end PaddleOCR on an image/canvas in the browser.
- * Extracts words/segments, then aggregates them into sentence-level bounding boxes.
- *
+ * Check if the current browser environment supports Web Workers and OffscreenCanvas.
+ */
+export function isWorkerSupported() {
+  return (
+    typeof Worker !== "undefined" &&
+    typeof OffscreenCanvas !== "undefined" &&
+    typeof URL !== "undefined" &&
+    typeof URL.createObjectURL === "function"
+  );
+}
+
+/**
+ * Get or create the shared OCR Web Worker singleton.
+ * @param {string} [workerScriptUrl='ocr_worker.js']
+ * @returns {Worker|null}
+ */
+export function getOcrWorker(workerScriptUrl = "ocr_worker.js") {
+  if (sharedWorker) return sharedWorker;
+  if (!isWorkerSupported()) return null;
+
+  try {
+    sharedWorker = new Worker(workerScriptUrl);
+    sharedWorker.onmessage = (event) => {
+      const { type, id, message, sentences, rawSegments, error } = event.data || {};
+      const handler = pendingTasks.get(id);
+      if (!handler) return;
+
+      if (type === "progress") {
+        if (typeof handler.onProgress === "function") {
+          handler.onProgress(message);
+        }
+      } else if (type === "ocr_result") {
+        pendingTasks.delete(id);
+        const resultSentences = Array.isArray(sentences) ? sentences : [];
+        resultSentences.rawSegments = rawSegments || [];
+        handler.resolve(resultSentences);
+      } else if (type === "error") {
+        pendingTasks.delete(id);
+        handler.reject(new Error(error || "Web Worker OCR error"));
+      }
+    };
+
+    sharedWorker.onerror = (err) => {
+      console.warn("Web Worker error:", err);
+      for (const handler of pendingTasks.values()) {
+        handler.reject(new Error(err && err.message ? err.message : "Web Worker crashed"));
+      }
+      pendingTasks.clear();
+      sharedWorker = null;
+    };
+
+    return sharedWorker;
+  } catch (e) {
+    console.warn("Failed to instantiate OCR Web Worker:", e);
+    sharedWorker = null;
+    return null;
+  }
+}
+
+/**
+ * Run OCR in a dedicated Web Worker (100% background thread, 0% main thread blocking).
  * @param {HTMLImageElement|HTMLCanvasElement|ImageBitmap} imageSource
  * @param {object} [options]
- * @param {function} [options.onProgress] - Callback for progress updates
- * @returns {Promise<Array<{text: string, box: {x: number, y: number, width: number, height: number}, confidence: number}>>}
+ * @returns {Promise<Array<{text: string, box: object, confidence: number}>>}
  */
-export async function runPaddleOcr(imageSource, options = {}) {
-  await initPaddleOcr();
+export async function runPaddleOcrViaWorker(imageSource, options = {}) {
+  const worker = getOcrWorker(options.workerScriptUrl || "ocr_worker.js");
+  if (!worker) {
+    throw new Error("Web Worker is not available or failed to initialize.");
+  }
 
   const onProgress = options.onProgress || (() => {});
+  const signal = options.signal || null;
+  if (signal && signal.aborted) {
+    throw new Error("OCR operation was cancelled.");
+  }
+
+  const taskId = nextTaskId++;
+  const origWidth = imageSource.naturalWidth || imageSource.videoWidth || imageSource.width;
+  const origHeight = imageSource.naturalHeight || imageSource.videoHeight || imageSource.height;
+
+  let bitmap = null;
+  let buffer = null;
+
+  if (typeof createImageBitmap === "function") {
+    try {
+      bitmap = await createImageBitmap(imageSource);
+    } catch {
+      bitmap = null;
+    }
+  }
+
+  if (!bitmap) {
+    let canvas;
+    if (typeof HTMLCanvasElement !== "undefined" && imageSource instanceof HTMLCanvasElement) {
+      canvas = imageSource;
+    } else {
+      canvas = document.createElement("canvas");
+      canvas.width = origWidth;
+      canvas.height = origHeight;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(imageSource, 0, 0, origWidth, origHeight);
+    }
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const imgData = ctx.getImageData(0, 0, origWidth, origHeight);
+    buffer = imgData.data.buffer;
+  }
+
+  return new Promise((resolve, reject) => {
+    let abortHandler = null;
+    if (signal) {
+      abortHandler = () => {
+        try {
+          worker.postMessage({ type: "cancel", id: taskId });
+        } catch {
+          // ignore
+        }
+        pendingTasks.delete(taskId);
+        reject(new Error("OCR operation was cancelled."));
+      };
+      signal.addEventListener("abort", abortHandler, { once: true });
+    }
+
+    pendingTasks.set(taskId, {
+      resolve: (val) => {
+        if (signal && abortHandler) signal.removeEventListener("abort", abortHandler);
+        resolve(val);
+      },
+      reject: (err) => {
+        if (signal && abortHandler) signal.removeEventListener("abort", abortHandler);
+        reject(err);
+      },
+      onProgress,
+    });
+
+    if (bitmap) {
+      worker.postMessage(
+        {
+          type: "ocr",
+          id: taskId,
+          width: origWidth,
+          height: origHeight,
+          bitmap,
+          options: { maxGapRatio: options.maxGapRatio },
+        },
+        [bitmap]
+      );
+    } else {
+      worker.postMessage(
+        {
+          type: "ocr",
+          id: taskId,
+          width: origWidth,
+          height: origHeight,
+          buffer,
+          options: { maxGapRatio: options.maxGapRatio },
+        },
+        [buffer]
+      );
+    }
+  });
+}
+
+/**
+ * Direct main-thread execution of PaddleOCR (used as graceful fallback when Web Workers are unavailable).
+ * @param {HTMLImageElement|HTMLCanvasElement|ImageBitmap} imageSource
+ * @param {object} [options]
+ * @returns {Promise<Array<{text: string, box: object, confidence: number}>>}
+ */
+export async function runPaddleOcrDirect(imageSource, options = {}) {
+  await initPaddleOcr(options);
+
+  const onProgress = options.onProgress || (() => {});
+  const signal = options.signal || null;
+  if (signal && signal.aborted) {
+    throw new Error("OCR operation was cancelled.");
+  }
+
   onProgress("Detecting text regions...");
 
   // Draw imageSource to standard canvas
@@ -153,6 +359,10 @@ export async function runPaddleOcr(imageSource, options = {}) {
   // 1. Run DBNet text detection
   const detectedBoxes = await detectTextRegions(canvas);
 
+  if (signal && signal.aborted) {
+    throw new Error("OCR operation was cancelled.");
+  }
+
   if (detectedBoxes.length === 0) {
     onProgress("No text detected.");
     return [];
@@ -160,14 +370,24 @@ export async function runPaddleOcr(imageSource, options = {}) {
 
   onProgress(`Recognizing text for ${detectedBoxes.length} region(s)...`);
 
-  // 2. Run Thai text recognition on each detected box
+  // 2. Run Thai text recognition on each detected box sequentially with non-blocking UI yields
   const rawSegments = [];
   for (let i = 0; i < detectedBoxes.length; i++) {
+    if (signal && signal.aborted) {
+      throw new Error("OCR operation was cancelled.");
+    }
+
     const box = detectedBoxes[i];
     onProgress(`Recognizing line ${i + 1}/${detectedBoxes.length}...`);
+
+    // Micro-yield to browser event loop so UI stays fluid
+    if (i % 2 === 0) {
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
     const result = await recognizeBox(ctx, box);
     if (result && result.text && result.text.trim()) {
-      const recognized = correctThaiNumerals(result.text.trim());
+      const recognized = correctThaiOcrText(result.text.trim());
       rawSegments.push({
         text: recognized,
         box: box,
@@ -184,6 +404,32 @@ export async function runPaddleOcr(imageSource, options = {}) {
 
   onProgress("Complete");
   return sentences;
+}
+
+/**
+ * Run end-to-end PaddleOCR on an image/canvas in the browser.
+ * Automatically delegates to a dedicated Web Worker when available for 0% main thread blocking,
+ * with seamless fallback to in-thread execution if Web Workers are unsupported.
+ *
+ * @param {HTMLImageElement|HTMLCanvasElement|ImageBitmap} imageSource
+ * @param {object} [options]
+ * @param {function} [options.onProgress] - Callback for progress updates
+ * @param {AbortSignal} [options.signal] - Optional cancellation signal
+ * @returns {Promise<Array<{text: string, box: {x: number, y: number, width: number, height: number}, confidence: number}>>}
+ */
+export async function runPaddleOcr(imageSource, options = {}) {
+  if (isWorkerSupported() && !options.disableWorker) {
+    try {
+      return await runPaddleOcrViaWorker(imageSource, options);
+    } catch (err) {
+      if (options.signal && options.signal.aborted) {
+        throw err;
+      }
+      console.warn("Web Worker execution failed, falling back to direct in-thread execution:", err);
+    }
+  }
+
+  return runPaddleOcrDirect(imageSource, options);
 }
 
 /**
@@ -242,15 +488,18 @@ async function detectTextRegions(canvas) {
   const rawBoxes = findBoxesFromBitmap(predData, targetW, targetH, 0.3);
 
   // Unclip / expand and scale back to original image space
+  // Thai script has 4 vertical levels (descenders/lower vowels ุ ู, base, upper vowels ิ ี, stacked tones ่ ้ ๊ ๋ ์)
+  // We expand vertically (expandYTop & expandYBottom) sufficiently to capture tall ascenders and deep descenders
   const boxes = [];
   for (const b of rawBoxes) {
-    const expandX = Math.round(b.width * 0.12);
-    const expandY = Math.round(b.height * 0.25);
+    const expandX = Math.max(6, Math.round(Math.max(b.width * 0.04, b.height * 0.25)));
+    const expandYTop = Math.max(4, Math.round(b.height * 0.25));
+    const expandYBottom = Math.max(4, Math.round(b.height * 0.22));
 
     const bx = Math.max(0, Math.floor((b.x - expandX) * ratioW));
-    const by = Math.max(0, Math.floor((b.y - expandY) * ratioH));
+    const by = Math.max(0, Math.floor((b.y - expandYTop) * ratioH));
     const bw = Math.min(origW - bx, Math.ceil((b.width + expandX * 2) * ratioW));
-    const bh = Math.min(origH - by, Math.ceil((b.height + expandY * 2) * ratioH));
+    const bh = Math.min(origH - by, Math.ceil((b.height + expandYTop + expandYBottom) * ratioH));
 
     if (bw > 4 && bh > 4) {
       boxes.push({ x: bx, y: by, width: bw, height: bh });
@@ -333,24 +582,40 @@ function findBoxesFromBitmap(data, width, height, threshold = 0.3) {
   return boxes;
 }
 
+let scratchCanvas = null;
+let scratchCtx = null;
+
+function getScratchCanvas(width, height) {
+  if (!scratchCanvas) {
+    scratchCanvas = document.createElement("canvas");
+    scratchCtx = scratchCanvas.getContext("2d", { willReadFrequently: true });
+  }
+  scratchCanvas.width = width;
+  scratchCanvas.height = height;
+  return { canvas: scratchCanvas, ctx: scratchCtx };
+}
+
 /**
  * Recognize Thai + Latin text within a single bounding box crop.
+ * Uses exact-dimension sequential inference (optimal for CPU WASM, zero padding overhead).
+ *
+ * @param {CanvasRenderingContext2D} ctx - Original canvas context
+ * @param {{x: number, y: number, width: number, height: number}} box - Bounding box
+ * @returns {Promise<{text: string, confidence: number, box: object}|null>}
  */
-async function recognizeBox(ctx, box) {
+export async function recognizeBox(ctx, box) {
+  if (!box || box.width <= 0 || box.height <= 0) return null;
+
   const cropW = box.width;
   const cropH = box.height;
-  if (cropW <= 0 || cropH <= 0) return null;
 
   // PaddleOCR RecResizeImg: height = 48, proportional width
   const targetH = 48;
   const targetW = Math.max(16, Math.round(targetH * (cropW / cropH)));
 
-  const cropCanvas = document.createElement("canvas");
-  cropCanvas.width = targetW;
-  cropCanvas.height = targetH;
-  const cCtx = cropCanvas.getContext("2d", { willReadFrequently: true });
+  const { canvas: sCanvas, ctx: sCtx } = getScratchCanvas(targetW, targetH);
 
-  cCtx.drawImage(
+  sCtx.drawImage(
     ctx.canvas,
     box.x,
     box.y,
@@ -362,7 +627,7 @@ async function recognizeBox(ctx, box) {
     targetH
   );
 
-  const imgData = cCtx.getImageData(0, 0, targetW, targetH);
+  const imgData = sCtx.getImageData(0, 0, targetW, targetH);
   const pixels = imgData.data;
 
   // Normalize (pixel / 255.0 - 0.5) / 0.5 in NCHW [1, 3, 48, targetW]
@@ -411,7 +676,6 @@ async function recognizeBox(ctx, box) {
       }
     }
 
-    // Sigmoid or softmax approximation for CTC score
     const conf = 1 / (1 + Math.exp(-Math.min(10, Math.max(-10, maxVal))));
 
     if (maxIdx !== 0 && maxIdx !== lastToken) {
@@ -429,7 +693,22 @@ async function recognizeBox(ctx, box) {
       ? confidences.reduce((a, b) => a + b, 0) / confidences.length
       : 0.0;
 
-  return { text, confidence: avgConf };
+  return { text, confidence: avgConf, box };
+}
+
+/**
+ * Sequential recognition wrapper across multiple bounding boxes.
+ */
+export async function recognizeBoxesBatch(ctx, boxes, options = {}) {
+  if (!Array.isArray(boxes) || boxes.length === 0) return [];
+  const onProgress = options.onProgress || (() => {});
+  const results = [];
+  for (let i = 0; i < boxes.length; i++) {
+    onProgress(`Recognizing line ${i + 1}/${boxes.length}...`);
+    const res = await recognizeBox(ctx, boxes[i]);
+    if (res) results.push(res);
+  }
+  return results;
 }
 
 /**

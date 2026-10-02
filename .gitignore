@@ -58,6 +58,11 @@ Thumbs.db
 previous-kiro-session-*.zip
 redacted_result.png
 
+# --- Local datasets / benchmarks (never commit to git) ---
+datasets/
+data/
+benchmark_images/
+
 # --- Experiment: screenpipe ONNX model + scratch (not committed) ---
 _screenpipe/
 web_interface/models/.cache/

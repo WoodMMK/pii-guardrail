@@ -16,6 +16,8 @@ import {
   handleSubmit,
   submitImage,
   summarizeCategories,
+  updatePageNavUI,
+  switchPage,
 } from "./app.js";
 
 // Minimal DOM fragment carrying the ids the module's DOM contract depends on.
@@ -26,6 +28,14 @@ const DOM_FRAGMENT = `
   </form>
   <div id="status-indicator" role="status" aria-busy="false" hidden>
     <span class="status-text">Processing...</span>
+  </div>
+  <div id="page-nav-bar" hidden>
+    <div id="doc-summary-badge"></div>
+    <div id="page-indicator"></div>
+    <button id="prev-page-btn"></button>
+    <div id="page-pill-list"></div>
+    <button id="next-page-btn"></button>
+    <button id="cancel-btn" hidden></button>
   </div>
   <div id="result-container"></div>
   <div id="error-container" role="alert"></div>
@@ -330,4 +340,13 @@ describe("renderResult OCR Local Mode", () => {
     expect(tableRows[1].textContent).toContain("World");
   });
 });
+
+describe("Multi-Page Async UI (updatePageNavUI & switchPage)", () => {
+  it("updatePageNavUI hides nav bar when <= 1 page", () => {
+    const elements = getElements(document);
+    updatePageNavUI(elements);
+    expect(elements.pageNavBar.hidden).toBe(true);
+  });
+});
+
 

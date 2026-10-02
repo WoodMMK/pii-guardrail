@@ -12,11 +12,28 @@
 export const DEFAULT_API_URL = "/api/ocr";
 
 import { runPaddleOcr, groupWordsIntoSentences, unionBoxes, getRedactionBoxes } from "./paddle_ocr.js";
-export { getRedactionBoxes };
+import { isPdfFile, convertPdfToPageCanvases, loadPdfDocument } from "./pdf_loader.js";
+export { getRedactionBoxes, isPdfFile, convertPdfToPageCanvases, loadPdfDocument };
 
 let currentOverlayData = null;
 let lastProcessedImage = null;
 let lastRawSegments = null;
+let currentDocPages = [];
+let currentPageIndex = 0;
+let activeAbortController = null;
+
+/**
+ * Escape HTML special characters for safe markup insertion.
+ */
+export function escapeHtml(str) {
+  if (typeof str !== "string") return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
 /**
  * Draw or highlight bounding boxes on the preview canvas.
@@ -31,15 +48,17 @@ export function drawBoundingBoxesOnCanvas(canvas, img, sentences, activeIndex = 
   ctx.drawImage(img, 0, 0, w, h);
 
   if (Array.isArray(sentences)) {
+    // Pass 1: Draw normal bounding boxes and badges
     sentences.forEach((s, idx) => {
       const box = s && s.box ? s.box : null;
       if (!box) return;
 
       const isActive = activeIndex === idx;
+      if (isActive) return; // Render active box in Pass 2 on top
 
-      ctx.lineWidth = isActive ? 3 : 1.5;
-      ctx.strokeStyle = isActive ? "#ef4444" : "#2563eb";
-      ctx.fillStyle = isActive ? "rgba(239, 68, 68, 0.22)" : "rgba(37, 99, 235, 0.12)";
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#2563eb";
+      ctx.fillStyle = "rgba(37, 99, 235, 0.12)";
 
       ctx.fillRect(box.x, box.y, box.width, box.height);
       ctx.strokeRect(box.x, box.y, box.width, box.height);
@@ -52,12 +71,43 @@ export function drawBoundingBoxesOnCanvas(canvas, img, sentences, activeIndex = 
       const badgeH = 18;
 
       const badgeY = Math.max(0, box.y - badgeH);
-      ctx.fillStyle = isActive ? "#ef4444" : "#2563eb";
+      ctx.fillStyle = "#2563eb";
       ctx.fillRect(box.x, badgeY, badgeW, badgeH);
 
       ctx.fillStyle = "#ffffff";
       ctx.fillText(label, box.x + 4, badgeY + 14);
     });
+
+    // Pass 2: Draw active/hovered box on top with OCR text callout
+    if (activeIndex !== null && sentences[activeIndex]) {
+      const s = sentences[activeIndex];
+      const box = s && s.box ? s.box : null;
+      if (box) {
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "#ef4444";
+        ctx.fillStyle = "rgba(239, 68, 68, 0.22)";
+        ctx.fillRect(box.x, box.y, box.width, box.height);
+        ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+        const textSnippet = s.text ? (s.text.length > 32 ? s.text.slice(0, 30) + "..." : s.text) : "";
+        const confText = Number.isFinite(s.confidence) ? ` (${(s.confidence * 100).toFixed(0)}%)` : "";
+        const label = `#${activeIndex + 1}: ${textSnippet}${confText}`;
+
+        ctx.font = "bold 14px system-ui, sans-serif";
+        const textMetrics = ctx.measureText(label);
+        const badgeW = textMetrics.width + 12;
+        const badgeH = 22;
+
+        const badgeY = Math.max(0, box.y - badgeH);
+        const badgeX = Math.min(Math.max(0, box.x), Math.max(0, w - badgeW));
+
+        ctx.fillStyle = "#ef4444";
+        ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(label, badgeX + 6, badgeY + 16);
+      }
+    }
   }
 
   if (highlightCustomBox) {
@@ -146,7 +196,12 @@ export function renderCanvasPreview(imgElement, sentences, container) {
   canvas.width = imgElement.naturalWidth || imgElement.width;
   canvas.height = imgElement.naturalHeight || imgElement.height;
 
+  const tooltip = document.createElement("div");
+  tooltip.className = "ocr-canvas-tooltip";
+  tooltip.hidden = true;
+
   wrapper.appendChild(canvas);
+  wrapper.appendChild(tooltip);
   figure.appendChild(wrapper);
 
   const caption = document.createElement("figcaption");
@@ -161,9 +216,94 @@ export function renderCanvasPreview(imgElement, sentences, container) {
     imgElement,
     sentences,
     items: sentences,
+    tooltip,
+    wrapper,
   };
 
   drawBoundingBoxesOnCanvas(canvas, imgElement, sentences, null);
+
+  let currentHoverIdx = null;
+
+  function findItemAt(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+      return -1;
+    }
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const imgX = (clientX - rect.left) * scaleX;
+    const imgY = (clientY - rect.top) * scaleY;
+
+    const items = currentOverlayData ? (currentOverlayData.items || currentOverlayData.sentences) : sentences;
+    if (!Array.isArray(items)) return -1;
+
+    for (let i = items.length - 1; i >= 0; i--) {
+      const box = items[i] && items[i].box;
+      if (box && imgX >= box.x && imgX <= box.x + box.width && imgY >= box.y && imgY <= box.y + box.height) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  function updateTooltip(idx, clientX, clientY) {
+    const items = currentOverlayData ? (currentOverlayData.items || currentOverlayData.sentences) : sentences;
+    const item = items && items[idx];
+    if (!item) {
+      tooltip.hidden = true;
+      return;
+    }
+    const wrapRect = wrapper.getBoundingClientRect();
+    const x = clientX - wrapRect.left + wrapper.scrollLeft;
+    const y = clientY - wrapRect.top + wrapper.scrollTop;
+
+    tooltip.style.left = `${x}px`;
+    tooltip.style.top = `${y - 12}px`;
+
+    const conf = Number.isFinite(item.confidence) ? ` (${(item.confidence * 100).toFixed(1)}%)` : "";
+    const box = item.box ? ` [${item.box.x}, ${item.box.y}, ${item.box.width}×${item.box.height}]` : "";
+    const textHtml = escapeHtml(item.text || "(empty text)");
+
+    tooltip.innerHTML = `<div><strong>#${idx + 1}</strong>: ${textHtml}</div><div style="font-size:0.75rem;color:#94a3b8;margin-top:2px;">${conf}${box}</div>`;
+    tooltip.hidden = false;
+  }
+
+  canvas.addEventListener("mousemove", (e) => {
+    const idx = findItemAt(e.clientX, e.clientY);
+    if (idx !== currentHoverIdx) {
+      currentHoverIdx = idx;
+      if (idx >= 0) {
+        canvas.style.cursor = "pointer";
+        highlightPreviewBox(idx);
+        updateTooltip(idx, e.clientX, e.clientY);
+
+        const rows = document.querySelectorAll(".ocr-table tbody tr");
+        rows.forEach((r, rIdx) => {
+          if (rIdx === idx) {
+            r.classList.add("active-row");
+            r.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          } else {
+            r.classList.remove("active-row");
+          }
+        });
+      } else {
+        canvas.style.cursor = "default";
+        highlightPreviewBox(null);
+        tooltip.hidden = true;
+        document.querySelectorAll(".ocr-table tbody tr.active-row").forEach((r) => r.classList.remove("active-row"));
+      }
+    } else if (idx >= 0) {
+      updateTooltip(idx, e.clientX, e.clientY);
+    }
+  });
+
+  canvas.addEventListener("mouseleave", () => {
+    currentHoverIdx = null;
+    canvas.style.cursor = "default";
+    highlightPreviewBox(null);
+    tooltip.hidden = true;
+    document.querySelectorAll(".ocr-table tbody tr.active-row").forEach((r) => r.classList.remove("active-row"));
+  });
 }
 
 /**
@@ -292,7 +432,148 @@ export function getElements(root = document) {
     ocrDebug: root.getElementById("ocr-debug"),
     ocrDebugBody: root.getElementById("ocr-debug-body"),
     ocrDebugCount: root.getElementById("ocr-debug-count"),
+    pageNavBar: root.getElementById("page-nav-bar"),
+    prevPageBtn: root.getElementById("prev-page-btn"),
+    nextPageBtn: root.getElementById("next-page-btn"),
+    pageIndicator: root.getElementById("page-indicator"),
+    pagePillList: root.getElementById("page-pill-list"),
+    docSummaryBadge: root.getElementById("doc-summary-badge"),
+    cancelBtn: root.getElementById("cancel-btn"),
   };
+}
+
+/**
+ * Switch the currently displayed page in a multi-page document.
+ * @param {number} index - 0-based page index
+ * @param {object} elements - resolved DOM elements
+ */
+export function switchPage(index, elements) {
+  if (!Array.isArray(currentDocPages) || currentDocPages.length === 0) return;
+  if (index < 0 || index >= currentDocPages.length) return;
+
+  currentPageIndex = index;
+  const page = currentDocPages[index];
+
+  lastProcessedImage = page.canvas || null;
+  lastRawSegments = page.rawSegments || null;
+
+  // Render visual canvas preview with bounding boxes
+  if (elements && elements.resultContainer) {
+    if (page.canvas) {
+      renderCanvasPreview(page.canvas, page.sentences || [], elements.resultContainer);
+      if (page.status === "processing" || page.status === "rendering") {
+        const notice = document.createElement("div");
+        notice.className = "page-status-notice processing";
+        notice.innerHTML = `<span class="spinner" aria-hidden="true"></span> <span>Running In-Browser PaddleOCR on Page ${page.pageNum} in background...</span>`;
+        elements.resultContainer.prepend(notice);
+      } else if (page.status === "queued") {
+        const notice = document.createElement("div");
+        notice.className = "page-status-notice queued";
+        notice.innerHTML = `<span>⏳ Page ${page.pageNum} is queued for background processing...</span>`;
+        elements.resultContainer.prepend(notice);
+      } else if (page.status === "error") {
+        const notice = document.createElement("div");
+        notice.className = "page-status-notice error";
+        notice.innerHTML = `<span>⚠️ Error on Page ${page.pageNum}: ${escapeHtml(page.error || "")}</span>`;
+        elements.resultContainer.prepend(notice);
+      }
+    } else {
+      elements.resultContainer.replaceChildren();
+      const placeholder = document.createElement("div");
+      placeholder.className = "page-placeholder";
+      placeholder.innerHTML = `<span class="spinner" aria-hidden="true"></span> <span>Rendering Page ${page.pageNum}...</span>`;
+      elements.resultContainer.appendChild(placeholder);
+    }
+  }
+
+  // Render debug inspection table for this page
+  if (elements) {
+    renderOcrDebug(page.sentences || [], elements);
+  }
+
+  if (elements && elements.ocrDebug) {
+    elements.ocrDebug.open = true;
+    elements.ocrDebug.hidden = false;
+  }
+
+  // Update navigation UI buttons and active pill
+  updatePageNavUI(elements);
+}
+
+/**
+ * Update the state of page navigation buttons and pills.
+ * @param {object} elements
+ */
+export function updatePageNavUI(elements) {
+  const {
+    pageNavBar,
+    prevPageBtn,
+    nextPageBtn,
+    pageIndicator,
+    pagePillList,
+    docSummaryBadge,
+  } = elements || {};
+
+  if (!pageNavBar) return;
+
+  const totalPages = currentDocPages ? currentDocPages.length : 0;
+  if (totalPages <= 1) {
+    pageNavBar.hidden = true;
+    return;
+  }
+
+  pageNavBar.hidden = false;
+
+  if (pageIndicator) {
+    pageIndicator.textContent = `Page ${currentPageIndex + 1} of ${totalPages}`;
+  }
+
+  if (prevPageBtn) {
+    prevPageBtn.disabled = currentPageIndex === 0;
+    prevPageBtn.onclick = () => switchPage(currentPageIndex - 1, elements);
+  }
+
+  if (nextPageBtn) {
+    nextPageBtn.disabled = currentPageIndex === totalPages - 1;
+    nextPageBtn.onclick = () => switchPage(currentPageIndex + 1, elements);
+  }
+
+  if (docSummaryBadge) {
+    const totalSentences = currentDocPages.reduce(
+      (sum, p) => sum + (Array.isArray(p.sentences) ? p.sentences.length : 0),
+      0
+    );
+    const completedPages = currentDocPages.filter((p) => p.status === "done").length;
+    docSummaryBadge.textContent = `📑 Multi-Page Document (${totalPages} pages • ${completedPages}/${totalPages} done • ${totalSentences} sentences)`;
+  }
+
+  if (pagePillList) {
+    pagePillList.replaceChildren();
+    currentDocPages.forEach((p, idx) => {
+      const pill = document.createElement("button");
+      pill.type = "button";
+      const isActive = idx === currentPageIndex;
+      const statusClass = p.status || "queued";
+      pill.className = `page-pill-btn ${isActive ? "active" : ""} status-${statusClass}`;
+
+      let statusBadge = "";
+      if (p.status === "done") {
+        const sentCount = Array.isArray(p.sentences) ? p.sentences.length : 0;
+        statusBadge = ` (${sentCount})`;
+      } else if (p.status === "processing" || p.status === "rendering") {
+        statusBadge = " ⏳";
+      } else if (p.status === "error") {
+        statusBadge = " ⚠️";
+      } else {
+        statusBadge = " ⏸";
+      }
+
+      pill.textContent = `P.${idx + 1}${statusBadge}`;
+      pill.title = `Switch to Page ${idx + 1} (${p.status || "queued"})`;
+      pill.onclick = () => switchPage(idx, elements);
+      pagePillList.appendChild(pill);
+    });
+  }
 }
 
 /**
@@ -325,11 +606,14 @@ export async function handleSubmit(event, elements, hooks = {}) {
     ocrDebug,
     ocrDebugBody,
     ocrDebugCount,
+    pageNavBar,
+    cancelBtn,
   } = elements || {};
 
   // Clear previous output placeholders.
   if (resultContainer) resultContainer.replaceChildren();
   if (errorContainer) errorContainer.replaceChildren();
+  if (pageNavBar) pageNavBar.hidden = true;
 
   // Reset the OCR debug panel between requests.
   if (ocrDebugBody) ocrDebugBody.replaceChildren();
@@ -349,6 +633,23 @@ export async function handleSubmit(event, elements, hooks = {}) {
     if (statusTextEl) statusTextEl.textContent = msg;
   };
 
+  if (activeAbortController) {
+    activeAbortController.abort();
+  }
+  activeAbortController = new AbortController();
+  const signal = activeAbortController.signal;
+
+  if (cancelBtn) {
+    cancelBtn.hidden = true;
+    cancelBtn.onclick = () => {
+      if (activeAbortController) {
+        activeAbortController.abort();
+        setStatusText("Background processing stopped by user.");
+        cancelBtn.hidden = true;
+      }
+    };
+  }
+
   try {
     if (hooks.submit) {
       // Injected submit (e.g. testing or custom hook)
@@ -357,34 +658,144 @@ export async function handleSubmit(event, elements, hooks = {}) {
         hooks.onResult(response);
       }
     } else {
-      // Live browser environment: Run 100% In-Browser PaddleOCR!
-      setStatusText("Initializing In-Browser PaddleOCR models...");
+      // Live browser environment: 100% In-Browser Asynchronous PaddleOCR!
+      setStatusText("Preparing document for processing...");
 
-      const img = new Image();
-      const imgUrl = URL.createObjectURL(file);
-      img.src = imgUrl;
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-      });
+      if (isPdfFile(file)) {
+        setStatusText("Loading PDF document structure...");
+        const doc = await loadPdfDocument(file);
+        const numPages = doc.numPages;
 
-      const sentences = await runPaddleOcr(img, {
-        maxGapRatio: 1.2,
-        onProgress: (msg) => setStatusText(msg),
-      });
+        currentDocPages = Array.from({ length: numPages }, (_, idx) => ({
+          pageNum: idx + 1,
+          status: idx === 0 ? "processing" : "queued",
+          canvas: null,
+          sentences: [],
+          width: 0,
+          height: 0,
+        }));
 
-      lastProcessedImage = img;
-      lastRawSegments = sentences.rawSegments || null;
+        updatePageNavUI(elements);
 
-      // Render visual canvas with bounding boxes
-      renderCanvasPreview(img, sentences, resultContainer);
+        // 1. Immediately render Page 1 to canvas
+        setStatusText(`Rendering Page 1 of ${numPages}...`);
+        const page1Data = await doc.renderPage(1, 2.0);
+        currentDocPages[0].canvas = page1Data.canvas;
+        currentDocPages[0].width = page1Data.width;
+        currentDocPages[0].height = page1Data.height;
+        currentDocPages[0].status = "processing";
+        currentPageIndex = 0;
+        switchPage(0, elements);
 
-      // Render debug table focusing on recognized sentences and bounding boxes
-      renderOcrDebug(sentences, elements);
+        // 2. Immediately run in-browser OCR on Page 1
+        setStatusText(`Running In-Browser PaddleOCR on Page 1/${numPages}...`);
+        const page1Sentences = await runPaddleOcr(page1Data.canvas, {
+          signal,
+          onProgress: (msg) => setStatusText(`Page 1/${numPages}: ${msg}`),
+        });
 
-      if (ocrDebug) {
-        ocrDebug.open = true;
-        ocrDebug.hidden = false;
+        currentDocPages[0].sentences = page1Sentences;
+        currentDocPages[0].status = "done";
+
+        // Display Page 1 with interactive bounding boxes right now!
+        switchPage(0, elements);
+
+        if (numPages === 1) {
+          hideStatus(statusIndicator);
+          setInFlight(submitBtn, false);
+          setStatusText("OCR completed successfully.");
+        } else {
+          // Re-enable submit button so user can interact with Page 1 immediately
+          setInFlight(submitBtn, false);
+          if (cancelBtn) cancelBtn.hidden = false;
+          setStatusText(`Background: Processing remaining pages (Page 2 of ${numPages})...`);
+
+          // 3. Asynchronously process remaining pages in the background
+          (async () => {
+            for (let i = 1; i < numPages; i++) {
+              if (signal.aborted) break;
+              const p = currentDocPages[i];
+              p.status = "rendering";
+              updatePageNavUI(elements);
+              setStatusText(`Background: Rendering Page ${i + 1}/${numPages}...`);
+
+              try {
+                const pageData = await doc.renderPage(i + 1, 2.0);
+                p.canvas = pageData.canvas;
+                p.width = pageData.width;
+                p.height = pageData.height;
+
+                if (signal.aborted) break;
+                p.status = "processing";
+                updatePageNavUI(elements);
+                if (currentPageIndex === i) switchPage(i, elements);
+
+                setStatusText(`Background: Running OCR on Page ${i + 1}/${numPages}...`);
+                const sents = await runPaddleOcr(p.canvas, {
+                  signal,
+                  onProgress: (msg) => {
+                    setStatusText(`Background Page ${i + 1}/${numPages}: ${msg}`);
+                  },
+                });
+                p.sentences = sents;
+                p.status = "done";
+              } catch (err) {
+                if (signal.aborted) break;
+                p.status = "error";
+                p.error = err.message || "Failed to process page";
+              }
+
+              if (currentPageIndex === i) {
+                switchPage(i, elements);
+              } else {
+                updatePageNavUI(elements);
+              }
+            }
+
+            if (cancelBtn) cancelBtn.hidden = true;
+            if (!signal.aborted) {
+              setStatusText(`All ${numPages} page(s) processed locally in browser.`);
+              setTimeout(() => hideStatus(statusIndicator), 2500);
+            }
+          })();
+        }
+      } else {
+        // Single image (PNG/JPEG/WEBP)
+        setStatusText("Loading image...");
+        const img = new Image();
+        const imgUrl = URL.createObjectURL(file);
+        img.src = imgUrl;
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+        });
+
+        currentDocPages = [
+          {
+            pageNum: 1,
+            canvas: img,
+            width: img.naturalWidth || img.width,
+            height: img.naturalHeight || img.height,
+            status: "processing",
+            sentences: [],
+          },
+        ];
+        currentPageIndex = 0;
+        switchPage(0, elements);
+
+        setStatusText("Running In-Browser PaddleOCR...");
+        const sentences = await runPaddleOcr(img, {
+          signal,
+          onProgress: (msg) => setStatusText(msg),
+        });
+
+        currentDocPages[0].sentences = sentences;
+        currentDocPages[0].status = "done";
+        switchPage(0, elements);
+
+        hideStatus(statusIndicator);
+        setInFlight(submitBtn, false);
+        setStatusText("OCR completed successfully.");
       }
     }
   } catch (error) {
@@ -394,9 +805,11 @@ export async function handleSubmit(event, elements, hooks = {}) {
       renderError(error, elements);
     }
   } finally {
-    hideStatus(statusIndicator);
-    setInFlight(submitBtn, false);
-    setStatusText("Processing...");
+    if (!currentDocPages || currentDocPages.length <= 1 || hooks.submit) {
+      hideStatus(statusIndicator);
+      setInFlight(submitBtn, false);
+      setStatusText("Processing...");
+    }
   }
 }
 

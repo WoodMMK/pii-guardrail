@@ -6,6 +6,7 @@
     <title>Thai Local OCR (PaddleOCR)</title>
     <link rel="stylesheet" href="styles.css" />
     <script src="vendor/ort.min.js"></script>
+    <script src="vendor/pdf.min.js"></script>
   </head>
   <body>
     <main class="app">
@@ -16,18 +17,18 @@
         </div>
         <h1>Thai Document OCR & Bounding Box Inspector</h1>
         <p class="intro">
-          Local client-side OCR powered by PaddleOCR ONNX Web. Extracts text and sentence-level bounding boxes directly in your browser without uploading images to any external API.
+          Local client-side OCR powered by PaddleOCR ONNX Web. Extracts text and sentence-level bounding boxes directly in your browser from images and multi-page PDF documents without uploading to any external API.
         </p>
       </header>
 
       <form id="upload-form" class="upload-form">
         <div class="form-row">
-          <label for="file-input" class="file-label">Select Document / Image (PNG, JPEG)</label>
+          <label for="file-input" class="file-label">Select Document (PDF, PNG, JPEG)</label>
           <input
             id="file-input"
             name="image"
             type="file"
-            accept="image/png,image/jpeg"
+            accept="image/png,image/jpeg,image/webp,application/pdf,.pdf"
             required
           />
         </div>
@@ -48,7 +49,21 @@
         hidden
       >
         <span class="spinner" aria-hidden="true"></span>
-        <span id="status-text" class="status-text">Processing image with PaddleOCR...</span>
+        <span id="status-text" class="status-text">Processing document with PaddleOCR...</span>
+      </div>
+
+      <!-- Multi-page navigation bar (shown when multi-page document or PDF loaded) -->
+      <div id="page-nav-bar" class="page-nav-bar" hidden>
+        <div class="page-nav-info">
+          <span id="doc-summary-badge" class="doc-summary-badge">📄 Document</span>
+          <span id="page-indicator" class="page-indicator">Page 1 of 1</span>
+        </div>
+        <div class="page-nav-controls">
+          <button id="prev-page-btn" type="button" class="btn-page-nav" title="Previous Page">◀ Prev</button>
+          <div id="page-pill-list" class="page-pill-list"></div>
+          <button id="next-page-btn" type="button" class="btn-page-nav" title="Next Page">Next ▶</button>
+          <button id="cancel-btn" type="button" class="btn-cancel" title="Stop background processing" hidden>⏹ Stop</button>
+        </div>
       </div>
 
       <!-- Side-by-side workspace: Document preview & bounding boxes alongside OCR inspection -->
@@ -61,6 +76,15 @@
         <div class="ocr-debug-column">
           <!-- Error message container -->
           <div id="error-container" class="error-container" role="alert"></div>
+
+          <!-- OCR Debug Inspection: recognized sentences & bounding boxes -->
+          <section id="ocr-debug" class="ocr-debug" aria-labelledby="ocr-debug-title" hidden>
+            <div class="ocr-debug-header">
+              <h2 id="ocr-debug-title" class="ocr-debug-title">📋 OCR Debug: Recognized Sentences &amp; Words</h2>
+              <span id="ocr-debug-count" class="ocr-debug-count"></span>
+            </div>
+            <div id="ocr-debug-body" class="ocr-debug-body"></div>
+          </section>
         </div>
       </div>
     </main>

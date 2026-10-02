@@ -56,12 +56,18 @@ class OCRPipeline:
                 warnings=[_INSUFFICIENT_QUALITY_WARNING],
             )
 
-        segments = self._ocr_engine.extract_text(work_image)
+        segments = self._ocr_engine.extract(work_image)
+        warnings: list[str] = []
+        if getattr(preprocessed, "upscaled", False):
+            warnings.append(
+                f"Image was upscaled {preprocessed.upscale_factor:.1f}x to reach 150 DPI threshold."
+            )
+
         return PipelineResult(
             ocr_segments=segments,
             processed_image=work_image,
             quality_sufficient=True,
-            warnings=list(preprocessed.warnings),
+            warnings=warnings,
         )
 
 
